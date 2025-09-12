@@ -36,6 +36,7 @@ func (u Interface) Commands(app *App) {
 				Flags: []cli.Flag{},
 			},
 			VLAN{}.Commands(),
+			Address{}.Commands(),
 		},
 	})
 }
@@ -53,8 +54,39 @@ func (s VLAN) Commands() *cli.Command {
 		Usage: "Configure VLAN",
 		Subcommands: []*cli.Command{
 			{
-				Name:   "set",
-				Usage:  "Configure vlan",
+				Name:   "add",
+				Usage:  "Add a vlan",
+				Action: s.Set,
+			},
+			{
+				Name:   "remove",
+				Usage:  "Remove a vlan",
+				Action: s.Set,
+			},
+		},
+	}
+}
+
+type Address struct {
+}
+
+func (s Address) Set(c *cli.Context) error {
+	return nil
+}
+
+func (s Address) Commands() *cli.Command {
+	return &cli.Command{
+		Name:  "address",
+		Usage: "Configure adress",
+		Subcommands: []*cli.Command{
+			{
+				Name:   "add",
+				Usage:  "Add a address",
+				Action: s.Set,
+			},
+			{
+				Name:   "remove",
+				Usage:  "Remove a Address",
 				Action: s.Set,
 			},
 		},

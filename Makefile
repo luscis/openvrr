@@ -4,6 +4,7 @@ ARCH ?=amd64
 SD = $(shell pwd)
 BD = $(SD)/build
 
+
 env:
 	mkdir -p $(BD)
 	go version
@@ -14,5 +15,8 @@ vendor:
 	go mod tidy
 	go mod vendor -v
 
-cmd: env
-	GOOS=linux GOARCH=$(ARCH) go build -mod=vendor -o $(BD)/openvrr ./cmd/main.go
+cli: env
+	GOOS=linux GOARCH=$(ARCH) go build -mod=vendor -o $(BD)/vrrcli ./cmd/cli/main.go
+
+vrr: env
+	GOOS=linux GOARCH=$(ARCH) go build -mod=vendor -o $(BD)/openvrr ./cmd/router/main.go
