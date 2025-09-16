@@ -2,7 +2,10 @@ module github.com/luscis/openvrr
 
 go 1.23.0
 
-require github.com/urfave/cli/v2 v2.27.7
+require (
+	github.com/google/go-cmp v0.7.0
+	github.com/urfave/cli/v2 v2.27.7
+)
 
 require (
 	github.com/vishvananda/netns v0.0.5 // indirect

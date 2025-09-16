@@ -4,6 +4,7 @@ ARCH ?=amd64
 SD = $(shell pwd)
 BD = $(SD)/build
 
+.PHONY: env vendor
 
 env:
 	mkdir -p $(BD)
