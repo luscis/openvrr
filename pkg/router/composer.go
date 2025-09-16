@@ -118,13 +118,7 @@ func (a *Composer) Init() {
 func (a *Composer) findPortId(name string) int {
 	vlanid := 0
 	fmt.Sscanf(name, "vlan%d", &vlanid)
-	return vlanid + 1000
-}
-
-type HwAddr string
-
-func (m HwAddr) hex() string {
-	return fmt.Sprintf("0x%s", strings.Replace(string(m), ":", "", 5))
+	return vlanid + 32768
 }
 
 func (a *Composer) findPortAddr(name string) string {
@@ -180,4 +174,10 @@ func (a *Composer) delFlows(match *ovs.MatchFlow) error {
 		log.Printf("failed to add flow: %v\n", err)
 	}
 	return err
+}
+
+type HwAddr string
+
+func (m HwAddr) hex() string {
+	return fmt.Sprintf("0x%s", strings.Replace(string(m), ":", "", 5))
 }

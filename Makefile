@@ -6,6 +6,8 @@ BD = $(SD)/build
 
 .PHONY: env vendor
 
+auto: vrr cli
+
 env:
 	mkdir -p $(BD)
 	go version
