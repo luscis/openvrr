@@ -12,7 +12,7 @@ const (
 )
 
 var (
-	Url     = "https://localhost:10001"
+	Url     = "http://localhost:10001"
 	Token   = ""
 	Verbose = false
 )
@@ -64,6 +64,11 @@ func (a *App) Init() *cli.App {
 		Flags:    a.Flags(),
 		Commands: []*cli.Command{},
 		Before: func(c *cli.Context) error {
+			if c.Bool("verbose") {
+				Verbose = true
+			} else {
+				Verbose = false
+			}
 			if a.Before == nil {
 				return nil
 			}

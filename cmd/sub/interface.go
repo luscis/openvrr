@@ -1,14 +1,58 @@
 package sub
 
 import (
+	"github.com/luscis/openvrr/pkg/schema"
 	"github.com/urfave/cli/v2"
 )
 
 type Interface struct {
+	Cmd
 }
 
-func (u Interface) Url(prefix, name string) string {
-	return ""
+func (u Interface) Url(prefix string) string {
+	return prefix + "/api/interface"
+}
+
+func (u Interface) Add(c *cli.Context) error {
+	url := u.Url(c.String("url"))
+
+	data := &schema.Interface{
+		Name: c.String("name"),
+	}
+
+	clt := u.NewHttp(c.String("token"))
+	if err := clt.PostJSON(url, data, nil); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (u Interface) Remove(c *cli.Context) error {
+	url := u.Url(c.String("url"))
+
+	data := &schema.Interface{
+		Name: c.String("name"),
+	}
+
+	clt := u.NewHttp(c.String("token"))
+	if err := clt.DeleteJSON(url, data, nil); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (u Interface) List(c *cli.Context) error {
+	url := u.Url(c.String("url"))
+
+	var items []schema.Interface
+	clt := u.NewHttp(c.String("token"))
+	if err := clt.GetJSON(url, &items); err != nil {
+		return err
+	}
+
+	return u.Out(items, c.String("format"))
 }
 
 func (u Interface) Commands(app *App) {
@@ -22,6 +66,7 @@ func (u Interface) Commands(app *App) {
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "name"},
 				},
+				Action: u.Add,
 			},
 			{
 				Name:  "remove",
@@ -29,11 +74,12 @@ func (u Interface) Commands(app *App) {
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "name"},
 				},
+				Action: u.Remove,
 			},
 			{
-				Name:  "list",
-				Usage: "List all interfaces",
-				Flags: []cli.Flag{},
+				Name:   "list",
+				Usage:  "List all interfaces",
+				Action: u.List,
 			},
 			VLAN{}.Commands(),
 			Address{}.Commands(),
@@ -42,10 +88,23 @@ func (u Interface) Commands(app *App) {
 }
 
 type VLAN struct {
+	Cmd
 }
 
-func (s VLAN) Set(c *cli.Context) error {
-	return nil
+func (s VLAN) Url(prefix string) string {
+	return prefix + "/api/vlan"
+}
+
+func (s VLAN) List(c *cli.Context) error {
+	url := s.Url(c.String("url"))
+
+	var items []schema.Vlan
+	clt := s.NewHttp(c.String("token"))
+	if err := clt.GetJSON(url, &items); err != nil {
+		return err
+	}
+
+	return s.Out(items, c.String("format"))
 }
 
 func (s VLAN) Commands() *cli.Command {
@@ -56,12 +115,17 @@ func (s VLAN) Commands() *cli.Command {
 			{
 				Name:   "add",
 				Usage:  "Add a vlan",
-				Action: s.Set,
+				Action: s.List,
 			},
 			{
 				Name:   "remove",
 				Usage:  "Remove a vlan",
-				Action: s.Set,
+				Action: s.List,
+			},
+			{
+				Name:   "List",
+				Usage:  "List all vlan",
+				Action: s.List,
 			},
 		},
 	}
