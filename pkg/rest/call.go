@@ -1,4 +1,4 @@
-package api
+package rest
 
 import "github.com/luscis/openvrr/pkg/schema"
 

@@ -16,38 +16,64 @@ type Composer struct {
 }
 
 func (a *Composer) Start() {
-	a.AddRoute("192.168.1.2", HwAddr("00:01"), "vlan10")
-	a.AddRoute("192.168.2.2", HwAddr("00:02"), "vlan20")
+	// a.AddRoute("192.168.1.2", HwAddr("00:01"), "vlan10")
+	// a.AddRoute("192.168.2.2", HwAddr("00:02"), "vlan20")
 }
 
-func (a *Composer) addVlanPort(vlan string) error {
-	ifs := ovs.InterfaceOptions{
-		OfportRequest: a.findPortId(vlan),
-		Mac:           a.findPortAddr(vlan),
-		Type:          ovs.InterfaceTypeInternal,
-	}
-	if err := a.vsctl.AddPortWith(a.brname, vlan, ifs); err != nil {
-		log.Printf("failed to add port: %v\n", err)
-		return err
-	}
-	if err := a.vsctl.Set.Interface(vlan, ifs); err != nil {
-		log.Printf("failed to set interface: %v\n", err)
+func (a *Composer) addVlanTag(port string, tag int) error {
+	if err := a.vsctl.AddPort(a.brname, port); err != nil {
+		log.Printf("Composer.addVlanTag.add: %v\n", err)
 		return err
 	}
 
-	ips := ovs.PortOptions{
-		Tag: a.findVlanId(vlan),
-	}
-	if err := a.vsctl.Set.Port(vlan, ips); err != nil {
-		log.Printf("failed to set port: %v\n", err)
+	ps := ovs.PortOptions{Tag: tag}
+	if err := a.vsctl.Set.Port(port, ps); err != nil {
+		log.Printf("Composer.addVlanTag.set: %v\n", err)
 		return err
 	}
 	return nil
 }
 
-func (a *Composer) delVlanPort(vlan string) error {
+func (a *Composer) addVlanTrunks(port, trunks string) error {
+	if err := a.vsctl.AddPort(a.brname, port); err != nil {
+		log.Printf("Composer.addVlanTrunks.add: %v\n", err)
+		return err
+	}
+
+	ps := ovs.PortOptions{Trunks: trunks}
+	if err := a.vsctl.Set.Port(port, ps); err != nil {
+		log.Printf("Composer.addVlanTrunks.set: %v\n", err)
+		return err
+	}
+	return nil
+}
+
+func (a *Composer) addVlanPort(vlan string) error {
+	is := ovs.InterfaceOptions{
+		OfportRequest: a.findPortId(vlan),
+		Mac:           a.findPortAddr(vlan),
+		Type:          ovs.InterfaceTypeInternal,
+	}
+	if err := a.vsctl.AddPortWith(a.brname, vlan, is); err != nil {
+		log.Printf("Composer.addVlanPort.add: %v\n", err)
+		return err
+	}
+	if err := a.vsctl.Set.Interface(vlan, is); err != nil {
+		log.Printf("Composer.addVlanPort.set.interface: %v\n", err)
+		return err
+	}
+
+	ps := ovs.PortOptions{Tag: a.findVlanId(vlan)}
+	if err := a.vsctl.Set.Port(vlan, ps); err != nil {
+		log.Printf("Composer.addVlanPort.set.port: %v\n", err)
+		return err
+	}
+	return nil
+}
+
+func (a *Composer) delPort(vlan string) error {
 	if err := a.vsctl.DeletePort(a.brname, vlan); err != nil {
-		log.Printf("failed to delete port: %v\n", err)
+		log.Printf("Composer.delPort: %v\n", err)
 		return err
 	}
 	return nil
@@ -55,7 +81,7 @@ func (a *Composer) delVlanPort(vlan string) error {
 
 func (a *Composer) addBr(name string) error {
 	if err := a.vsctl.AddBridge(name); err != nil {
-		log.Fatalf("failed to add bridge: %v\n", err)
+		log.Fatalf("Composer.addBr: %v\n", err)
 		return err
 	}
 	return nil
@@ -134,13 +160,14 @@ func (a *Composer) findVlanId(name string) int {
 	return vlanid
 }
 
-func (a *Composer) AddRoute(ipdst string, ethdst HwAddr, vlanif string) {
+func (a *Composer) AddRoute(ipdst string, ethdst HwAddr, vlanif string) error {
 	// table=20
+	log.Printf("Compose.Addroute: %s -> %s on %s", ipdst, ethdst, vlanif)
 	ethsrc := a.findPortAddr(vlanif)
 	vlanid := fmt.Sprintf("0x%x", a.findVlanId(vlanif))
 	portid := fmt.Sprintf("0x%x", a.findPortId(vlanif))
 
-	a.addFlow(&ovs.Flow{
+	return a.addFlow(&ovs.Flow{
 		Priority: 100,
 		Cookie:   0x2041,
 		Table:    20,
@@ -160,10 +187,25 @@ func (a *Composer) AddRoute(ipdst string, ethdst HwAddr, vlanif string) {
 	})
 }
 
+func (a *Composer) DelRoute(ipdst string, vlanif string) error {
+	log.Printf("Compose.Delroute: %s on %s", ipdst, vlanif)
+	ethsrc := a.findPortAddr(vlanif)
+
+	return a.delFlows(&ovs.MatchFlow{
+		Cookie:   0x2041,
+		Table:    20,
+		Protocol: ovs.ProtocolIPv4,
+		Matches: []ovs.Match{
+			ovs.NetworkDestination(ipdst),
+			ovs.DataLinkDestination(ethsrc),
+		},
+	})
+}
+
 func (a *Composer) addFlow(flow *ovs.Flow) error {
 	err := a.ofctl.AddFlow(a.brname, flow)
 	if err != nil {
-		log.Printf("failed to add flow: %v\n", err)
+		log.Printf("Composer.addFlow: %v\n", err)
 	}
 	return err
 }
@@ -171,7 +213,7 @@ func (a *Composer) addFlow(flow *ovs.Flow) error {
 func (a *Composer) delFlows(match *ovs.MatchFlow) error {
 	err := a.ofctl.DelFlows(a.brname, match)
 	if err != nil {
-		log.Printf("failed to add flow: %v\n", err)
+		log.Printf("Composer.delFlow: %v\n", err)
 	}
 	return err
 }

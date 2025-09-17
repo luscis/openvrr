@@ -2,7 +2,7 @@ package schema
 
 type Vlan struct {
 	Interface string
-	Tag       string
+	Tag       int
 	Trunks    string
 	VlanMode  string
 }

@@ -64,7 +64,7 @@ func (u Interface) Commands(app *App) {
 				Name:  "add",
 				Usage: "Add a virtual interface",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "name"},
+					&cli.StringFlag{Name: "name", Required: true},
 				},
 				Action: u.Add,
 			},
@@ -72,7 +72,7 @@ func (u Interface) Commands(app *App) {
 				Name:  "remove",
 				Usage: "Remove a virtual interface",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "name"},
+					&cli.StringFlag{Name: "name", Required: true},
 				},
 				Action: u.Remove,
 			},
@@ -107,20 +107,36 @@ func (s VLAN) List(c *cli.Context) error {
 	return s.Out(items, c.String("format"))
 }
 
+func (s VLAN) Add(c *cli.Context) error {
+	url := s.Url(c.String("url"))
+	data := &schema.Vlan{
+		Interface: c.String("interface"),
+		Tag:       c.Int("tag"),
+		Trunks:    c.String("trunks"),
+	}
+
+	clt := s.NewHttp(c.String("token"))
+	if err := clt.PostJSON(url, data, nil); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (s VLAN) Commands() *cli.Command {
 	return &cli.Command{
 		Name:  "vlan",
 		Usage: "Configure VLAN",
 		Subcommands: []*cli.Command{
 			{
-				Name:   "add",
-				Usage:  "Add a vlan",
-				Action: s.List,
-			},
-			{
-				Name:   "remove",
-				Usage:  "Remove a vlan",
-				Action: s.List,
+				Name:  "add",
+				Usage: "Add a vlan",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "interface", Required: true},
+					&cli.IntFlag{Name: "tag"},
+					&cli.StringFlag{Name: "trunks"},
+				},
+				Action: s.Add,
 			},
 			{
 				Name:   "List",

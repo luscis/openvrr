@@ -10,6 +10,7 @@ import (
 )
 
 type IPNeighbor struct {
+	On func(uint16, netlink.Neigh) error
 }
 
 func (r *IPNeighbor) Init() {
@@ -18,12 +19,11 @@ func (r *IPNeighbor) Init() {
 func (n *IPNeighbor) list() {
 	neighbors, err := netlink.NeighList(0, syscall.AF_INET)
 	if err != nil {
-		log.Fatalf("failed to list routes: %v\n", err)
+		log.Fatalf("IPNeighbor: list routes: %v", err)
 	}
 
 	for _, neigh := range neighbors {
-		log.Printf("Neighbor update received: Neigh=%+v\n", neigh)
-
+		n.On(0, neigh)
 	}
 }
 
@@ -38,7 +38,7 @@ func (n *IPNeighbor) watch() {
 
 	err := netlink.NeighSubscribe(neighCh, doneCh)
 	if err != nil {
-		log.Fatalf("failed to subscribe to neighbor updates: %v\n", err)
+		log.Fatalf("IPNeighbor.watch: subscribe to updates: %v", err)
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -47,7 +47,7 @@ func (n *IPNeighbor) watch() {
 	for {
 		select {
 		case update := <-neighCh:
-			log.Printf("Neighbor update received: Type=%v, Neigh=%+v\n", update.Type, update.Neigh)
+			n.On(update.Type, update.Neigh)
 
 		case <-sigCh:
 			close(doneCh)
@@ -57,6 +57,7 @@ func (n *IPNeighbor) watch() {
 }
 
 type IPRoute struct {
+	On func(update uint16, route netlink.Route) error
 }
 
 func (r *IPRoute) Init() {
@@ -65,11 +66,11 @@ func (r *IPRoute) Init() {
 func (r *IPRoute) list() {
 	routes, err := netlink.RouteList(nil, syscall.AF_INET)
 	if err != nil {
-		log.Fatalf("failed to list routes: %v\n", err)
+		log.Fatalf("IPRoute.watch: list routes: %v", err)
 	}
 
 	for _, route := range routes {
-		log.Printf("Route update received: Route=%+v\n", route)
+		r.On(0, route)
 	}
 }
 
@@ -84,7 +85,7 @@ func (r *IPRoute) watch() {
 
 	err := netlink.RouteSubscribe(routeCh, doneCh)
 	if err != nil {
-		log.Fatalf("failed to subscribe to route updates: %v\n", err)
+		log.Fatalf("IPRoute.watch: subscribe to updates: %v", err)
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -93,7 +94,7 @@ func (r *IPRoute) watch() {
 	for {
 		select {
 		case update := <-routeCh:
-			log.Printf("Route update received: Type=%v, Route=%+v\n", update.Type, update.Route)
+			r.On(update.Type, update.Route)
 
 		case <-sigCh:
 			close(doneCh)

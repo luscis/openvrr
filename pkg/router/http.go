@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/luscis/openvrr/pkg/api"
+	"github.com/luscis/openvrr/pkg/rest"
 )
 
 func NotFound(w http.ResponseWriter, r *http.Request) {
@@ -26,7 +26,7 @@ type Http struct {
 	adminFile  string
 	server     *http.Server
 	url        *mux.Router
-	caller     api.Caller
+	caller     rest.Caller
 }
 
 func (h *Http) Init() {
@@ -83,7 +83,7 @@ func (h *Http) AddUrl() {
 	url := h.Url()
 
 	url.HandleFunc("/api/urls", h.GetApi).Methods("GET")
-	api.Add(url, h.caller)
+	rest.Add(url, h.caller)
 }
 
 func (h *Http) saveToken(token string) {
@@ -112,7 +112,7 @@ func (h *Http) SetToken() {
 		}
 	}
 	if token == "" {
-		token = api.GenString(32)
+		token = rest.GenString(32)
 		h.saveToken(token)
 	}
 	h.adminToken = token
@@ -134,7 +134,7 @@ func (t *Http) GetApi(w http.ResponseWriter, r *http.Request) {
 		}
 		return nil
 	})
-	api.ResponseYaml(w, urls)
+	rest.ResponseYaml(w, urls)
 }
 
 func (h *Http) Start() {
