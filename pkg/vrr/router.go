@@ -57,17 +57,17 @@ func (v *Vrr) Wait() {
 	<-x
 }
 
-func (v *Vrr) AddVlan(data schema.Vlan) error {
+func (v *Vrr) AddVlan(data schema.Interface) error {
 	if data.Tag > 0 {
-		return v.compose.addVlanTag(data.Interface, data.Tag)
+		return v.compose.addVlanTag(data.Name, data.Tag)
 	}
 	if data.Trunks != "" {
-		return v.compose.addVlanTrunks(data.Interface, data.Trunks)
+		return v.compose.addVlanTrunks(data.Name, data.Trunks)
 	}
 	return nil
 }
 
-func (v *Vrr) DelVlan(data schema.Vlan) error {
+func (v *Vrr) DelVlan(data schema.Interface) error {
 	return nil
 }
 
@@ -77,6 +77,25 @@ func (v *Vrr) AddInterface(data schema.Interface) error {
 
 func (v *Vrr) DelInterface(data schema.Interface) error {
 	return v.compose.delPort(data.Name)
+}
+
+func (v *Vrr) ListInterface() ([]schema.Interface, error) {
+	ports, err := v.compose.listPorts()
+	if err != nil {
+		return nil, err
+	}
+
+	var items []schema.Interface
+	for _, port := range ports {
+		items = append(items, schema.Interface{
+			Name:      port.Name,
+			Tag:       port.Tag,
+			Trunks:    port.Trunks,
+			LinkState: port.LinkState,
+			Mac:       port.Mac,
+		})
+	}
+	return items, nil
 }
 
 func (v *Vrr) OnNeighbor(update uint16, host netlink.Neigh) error {

@@ -1,12 +1,10 @@
 package schema
 
-type Vlan struct {
-	Interface string
-	Tag       int
-	Trunks    string
-	VlanMode  string
-}
-
 type Interface struct {
-	Name string
+	Name      string
+	LinkState string
+	Tag       int    `json:"tag,omitempty" yaml:"tag,omitempty"`
+	Trunks    string `json:"trunks,omitempty" yaml:"trunks,omitempty"`
+	Mac       string
+	ofport    int
 }

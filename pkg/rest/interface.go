@@ -18,7 +18,8 @@ func (l Interface) Router(r *mux.Router) {
 }
 
 func (l Interface) List(w http.ResponseWriter, r *http.Request) {
-	ResponseJson(w, nil)
+	items, _ := l.call.ListInterface()
+	ResponseJson(w, items)
 }
 
 func (l Interface) Add(w http.ResponseWriter, r *http.Request) {

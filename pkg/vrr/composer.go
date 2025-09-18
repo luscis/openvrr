@@ -38,6 +38,25 @@ func (a *Composer) Start() {
 	log.Printf("Composer.Start")
 }
 
+func (a *Composer) listPorts() ([]ovs.PortData, error) {
+	ports, err := a.vsctl.ListPorts(a.brname)
+	if err != nil {
+		log.Printf("Composer.listPorts: %v\n", err)
+		return nil, err
+	}
+
+	var items []ovs.PortData
+	for _, port := range ports {
+		data, err := a.vsctl.Get.Port(port)
+		if err != nil {
+			continue
+		}
+		items = append(items, data)
+	}
+
+	return items, nil
+}
+
 func (a *Composer) addVlanTag(port string, tag int) error {
 	if err := a.vsctl.AddPort(a.brname, port); err != nil {
 		log.Printf("Composer.addVlanTag.add: %v\n", err)

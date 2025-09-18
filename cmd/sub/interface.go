@@ -98,7 +98,7 @@ func (s VLAN) Url(prefix string) string {
 func (s VLAN) List(c *cli.Context) error {
 	url := s.Url(c.String("url"))
 
-	var items []schema.Vlan
+	var items []schema.Interface
 	clt := s.NewHttp(c.String("token"))
 	if err := clt.GetJSON(url, &items); err != nil {
 		return err
@@ -109,10 +109,10 @@ func (s VLAN) List(c *cli.Context) error {
 
 func (s VLAN) Add(c *cli.Context) error {
 	url := s.Url(c.String("url"))
-	data := &schema.Vlan{
-		Interface: c.String("interface"),
-		Tag:       c.Int("tag"),
-		Trunks:    c.String("trunks"),
+	data := &schema.Interface{
+		Name:   c.String("interface"),
+		Tag:    c.Int("tag"),
+		Trunks: c.String("trunks"),
 	}
 
 	clt := s.NewHttp(c.String("token"))

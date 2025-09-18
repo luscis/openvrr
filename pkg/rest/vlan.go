@@ -18,11 +18,12 @@ func (l Vlan) Router(r *mux.Router) {
 }
 
 func (l Vlan) List(w http.ResponseWriter, r *http.Request) {
-	ResponseJson(w, nil)
+	items, _ := l.call.ListInterface()
+	ResponseJson(w, items)
 }
 
 func (l Vlan) Add(w http.ResponseWriter, r *http.Request) {
-	data := schema.Vlan{}
+	data := schema.Interface{}
 	if err := GetData(r, &data); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -36,7 +37,7 @@ func (l Vlan) Add(w http.ResponseWriter, r *http.Request) {
 }
 
 func (l Vlan) Remove(w http.ResponseWriter, r *http.Request) {
-	data := schema.Vlan{}
+	data := schema.Interface{}
 	if err := GetData(r, &data); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

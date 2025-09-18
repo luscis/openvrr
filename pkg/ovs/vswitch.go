@@ -190,6 +190,90 @@ func (v *VSwitchGetService) Bridge(bridge string) (BridgeOptions, error) {
 	}, nil
 }
 
+type PortData struct {
+	UUID      string
+	Mac       string
+	Name      string
+	Tag       int
+	Trunks    string
+	VlanMode  string
+	LinkState string
+	OfPort    int
+	Mtu       int
+}
+
+func parseKeyValue(input string) map[string]string {
+	data := make(map[string]string)
+
+	lines := strings.Split(input, "\n")
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		// Split on the first colon
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		data[key] = value
+	}
+
+	return data
+}
+
+func trimSet(value string) string {
+	value = strings.Trim(value, "[]")
+	value = strings.Trim(value, "\"")
+	return value
+}
+
+func (v *VSwitchGetService) Port(port string) (PortData, error) {
+	data := PortData{}
+
+	args := []string{"list", "port", port}
+	out, err := v.v.exec(args...)
+	if err != nil {
+		return data, err
+	}
+
+	items := parseKeyValue(string(out))
+	for key, value := range items {
+		switch key {
+		case "mac":
+			data.Mac = trimSet(value)
+		case "name":
+			data.Name = value
+		case "tag":
+			fmt.Sscanf(value, "%d", &data.Tag)
+		case "vlan_mode":
+			data.VlanMode = value
+		case "trunks":
+			data.Trunks = trimSet(value)
+		}
+	}
+
+	args = []string{"list", "interface", port}
+	out, _ = v.v.exec(args...)
+
+	items = parseKeyValue(string(out))
+	for key, value := range items {
+		switch key {
+		case "mac_in_use":
+			data.Mac = trimSet(value)
+		case "link_state":
+			data.LinkState = value
+		case "ofport":
+			fmt.Sscanf(value, "%d", &data.OfPort)
+		case "mtu":
+			fmt.Sscanf(value, "%d", &data.Mtu)
+		}
+	}
+
+	return data, nil
+}
+
 // A VSwitchSetService is used in a VSwitchService to execute 'ovs-vsctl set'
 // subcommands.
 type VSwitchSetService struct {
