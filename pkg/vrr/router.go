@@ -1,4 +1,4 @@
-package router
+package vrr
 
 import (
 	"log"
@@ -11,14 +11,14 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
-type Router struct {
+type Vrr struct {
 	ipneigh *IPNeighbor
 	iproute *IPRoute
 	compose *Composer
 	http    *Http
 }
 
-func (v *Router) Init() {
+func (v *Vrr) Init() {
 	v.compose = &Composer{
 		brname: "br-vrr",
 	}
@@ -42,14 +42,14 @@ func (v *Router) Init() {
 	v.http.Init()
 }
 
-func (v *Router) Start() {
+func (v *Vrr) Start() {
 	v.ipneigh.Start()
 	v.iproute.Start()
 	v.compose.Start()
 	v.http.Start()
 }
 
-func (v *Router) Wait() {
+func (v *Vrr) Wait() {
 	x := make(chan os.Signal, 1)
 	signal.Notify(x, os.Interrupt, syscall.SIGTERM)
 	signal.Notify(x, os.Interrupt, syscall.SIGQUIT) //CTL+/
@@ -57,7 +57,7 @@ func (v *Router) Wait() {
 	<-x
 }
 
-func (v *Router) AddVlan(data schema.Vlan) error {
+func (v *Vrr) AddVlan(data schema.Vlan) error {
 	if data.Tag > 0 {
 		return v.compose.addVlanTag(data.Interface, data.Tag)
 	}
@@ -67,32 +67,32 @@ func (v *Router) AddVlan(data schema.Vlan) error {
 	return nil
 }
 
-func (v *Router) DelVlan(data schema.Vlan) error {
+func (v *Vrr) DelVlan(data schema.Vlan) error {
 	return nil
 }
 
-func (v *Router) AddInterface(data schema.Interface) error {
+func (v *Vrr) AddInterface(data schema.Interface) error {
 	return v.compose.addVlanPort(data.Name)
 }
 
-func (v *Router) DelInterface(data schema.Interface) error {
+func (v *Vrr) DelInterface(data schema.Interface) error {
 	return v.compose.delPort(data.Name)
 }
 
-func (v *Router) OnNeighbor(update uint16, host netlink.Neigh) error {
+func (v *Vrr) OnNeighbor(update uint16, host netlink.Neigh) error {
 	attr := FindLinkAttr(host.LinkIndex)
 	if attr == nil || !strings.HasPrefix(attr.Name, "vlan") {
 		return nil
 	}
 
-	log.Printf("Router.OnNeighbor: Type=%d, Host=%+v", update, host)
+	log.Printf("Vrr.OnNeighbor: Type=%d, Host=%+v", update, host)
 
 	port := attr.Name
 	ipdst := host.IP.String()
 	ethdst := host.HardwareAddr.String()
 	switch update {
 	case UpdateNeighNew, UpdateNeighAdd:
-		if ethdst == "" {
+		if ethdst == "" || host.IP.IsMulticast() {
 			return nil
 		}
 		v.compose.AddHost(IpAddr(ipdst), HwAddr(ethdst), port)
@@ -111,12 +111,12 @@ func FindLinkAttr(index int) *netlink.LinkAttrs {
 	return link.Attrs()
 }
 
-func (v *Router) OnRoute(update uint16, rule netlink.Route) error {
+func (v *Vrr) OnRoute(update uint16, rule netlink.Route) error {
 	attr := FindLinkAttr(rule.LinkIndex)
 	if attr == nil || !strings.HasPrefix(attr.Name, "vlan") {
 		return nil
 	}
-	log.Printf("Router.OnRoute: Type=%d, Rule=%+v", update, rule)
+	log.Printf("Vrr.OnRoute: Type=%d, Rule=%+v", update, rule)
 
 	port := attr.Name
 	ipdst := rule.Dst.String()

@@ -22,4 +22,4 @@ cli: env
 	GOOS=linux GOARCH=$(ARCH) go build -mod=vendor -o $(BD)/vrrcli ./cmd/cli/main.go
 
 vrr: env
-	GOOS=linux GOARCH=$(ARCH) go build -mod=vendor -o $(BD)/openvrr ./cmd/router/main.go
+	GOOS=linux GOARCH=$(ARCH) go build -mod=vendor -o $(BD)/openvrr ./cmd/vrr/main.go
