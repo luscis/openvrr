@@ -9,6 +9,15 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
+const (
+	UpdateNeighNew = 0
+	UpdateNeighAdd = 28
+	UpdateNeighDel = 29
+	UpdateRouteNew = 0
+	UpdateRouteAdd = 24
+	UpdateRouteDel = 25
+)
+
 type IPNeighbor struct {
 	On func(uint16, netlink.Neigh) error
 }
@@ -57,7 +66,7 @@ func (n *IPNeighbor) watch() {
 }
 
 type IPRoute struct {
-	On func(update uint16, route netlink.Route) error
+	On func(uint16, netlink.Route) error
 }
 
 func (r *IPRoute) Init() {

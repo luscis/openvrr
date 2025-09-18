@@ -3,9 +3,28 @@ package router
 import (
 	"fmt"
 	"log"
+	"net"
 	"strings"
 
 	"github.com/luscis/openvrr/pkg/ovs"
+)
+
+const (
+	TableIn  = 0
+	TableRib = 19
+	TableFib = 20
+	TableFdb = 30
+)
+
+const (
+	CookieIn  = 0x2021
+	CookieRib = 0x2022
+	CookieFib = 0x2023
+	CookieFdb = 0x2024
+)
+
+const (
+	DefaultVlanMac = "00:00:00:00:20:15"
 )
 
 type Composer struct {
@@ -16,8 +35,7 @@ type Composer struct {
 }
 
 func (a *Composer) Start() {
-	// a.AddRoute("192.168.1.2", HwAddr("00:01"), "vlan10")
-	// a.AddRoute("192.168.2.2", HwAddr("00:02"), "vlan20")
+	log.Printf("Composer.Start")
 }
 
 func (a *Composer) addVlanTag(port string, tag int) error {
@@ -88,7 +106,6 @@ func (a *Composer) addBr(name string) error {
 }
 
 func (a *Composer) Init() {
-	a.brname = "br-vrr"
 	a.client = ovs.New(
 		ovs.Sudo(),
 	)
@@ -97,44 +114,54 @@ func (a *Composer) Init() {
 	a.ofctl = a.client.OpenFlow
 
 	a.addBr(a.brname)
-	a.addVlanPort("vlan10")
-	a.addVlanPort("vlan20")
-	a.addVlanPort("vlan30")
-
 	a.delFlows(nil)
 
-	// table=0
+	// table=0 IN
 	a.addFlow(&ovs.Flow{
 		Priority: 100,
-		Cookie:   0x2021,
-		Table:    0,
+		Cookie:   CookieIn,
+		Protocol: ovs.ProtocolIPv4,
+		Table:    TableIn,
 		Actions: []ovs.Action{
+			ovs.Resubmit(0, 19),
+		},
+	})
+	// table=0 IN
+	a.addFlow(&ovs.Flow{
+		Priority: 0,
+		Cookie:   CookieIn,
+		Table:    TableIn,
+		Actions: []ovs.Action{
+			ovs.Normal(),
+		},
+	})
+	// table=19 RIB
+	a.addFlow(&ovs.Flow{
+		Priority: 0,
+		Cookie:   CookieRib,
+		Table:    TableRib,
+		Protocol: ovs.ProtocolIPv4,
+		Actions: []ovs.Action{
+			ovs.Push("OXM_OF_IPV4_DST"),
+			ovs.Pop("reg0"),
 			ovs.Resubmit(0, 20),
 		},
 	})
-	// table=0
+	// table=20 FIB
 	a.addFlow(&ovs.Flow{
 		Priority: 0,
-		Cookie:   0x2021,
-		Table:    0,
+		Cookie:   CookieFib,
+		Table:    TableFib,
 		Actions: []ovs.Action{
-			ovs.Drop(),
-		},
-	})
-	// table=20
-	a.addFlow(&ovs.Flow{
-		Priority: 0,
-		Cookie:   0x2041,
-		Table:    20,
-		Actions: []ovs.Action{
+			ovs.Load("0x0", "reg0"),
 			ovs.Resubmit(0, 30),
 		},
 	})
-	// table=30
+	// table=30 FDB
 	a.addFlow(&ovs.Flow{
 		Priority: 0,
-		Table:    30,
-		Cookie:   0x2051,
+		Table:    TableFdb,
+		Cookie:   CookieFdb,
 		Actions: []ovs.Action{
 			ovs.Normal(),
 		},
@@ -149,7 +176,7 @@ func (a *Composer) findPortId(name string) int {
 
 func (a *Composer) findPortAddr(name string) string {
 	if strings.HasPrefix(name, "vlan") {
-		return "00:00:00:00:10:00"
+		return DefaultVlanMac
 	}
 	return "unkonwn"
 }
@@ -160,26 +187,26 @@ func (a *Composer) findVlanId(name string) int {
 	return vlanid
 }
 
-func (a *Composer) AddRoute(ipdst string, ethdst HwAddr, vlanif string) error {
-	// table=20
-	log.Printf("Compose.Addroute: %s -> %s on %s", ipdst, ethdst, vlanif)
+func (a *Composer) AddHost(ipdst IpAddr, ethdst HwAddr, vlanif string) error {
+	// table=20 FIB
+	log.Printf("Compose.AddHost: %s -> %s on %s", ipdst, ethdst, vlanif)
 	ethsrc := a.findPortAddr(vlanif)
 	vlanid := fmt.Sprintf("0x%x", a.findVlanId(vlanif))
 	portid := fmt.Sprintf("0x%x", a.findPortId(vlanif))
 
 	return a.addFlow(&ovs.Flow{
 		Priority: 100,
-		Cookie:   0x2041,
-		Table:    20,
+		Cookie:   CookieFib,
+		Table:    TableFib,
 		Protocol: ovs.ProtocolIPv4,
 		Matches: []ovs.Match{
-			ovs.NetworkDestination(ipdst),
+			ovs.FieldMatch("reg0", ipdst.Hex()),
 			ovs.DataLinkDestination(ethsrc),
 		},
 		Actions: []ovs.Action{
 			ovs.Push("NXM_OF_ETH_DST"),
 			ovs.Pop("NXM_OF_ETH_SRC"),
-			ovs.Load(ethdst.hex(), "NXM_OF_ETH_DST"),
+			ovs.Load(ethdst.Hex(), "NXM_OF_ETH_DST"),
 			ovs.Load(vlanid, "NXM_OF_VLAN_TCI"),
 			ovs.Load(portid, "NXM_OF_IN_PORT"),
 			ovs.Resubmit(0, 30),
@@ -187,16 +214,16 @@ func (a *Composer) AddRoute(ipdst string, ethdst HwAddr, vlanif string) error {
 	})
 }
 
-func (a *Composer) DelRoute(ipdst string, vlanif string) error {
-	log.Printf("Compose.Delroute: %s on %s", ipdst, vlanif)
+func (a *Composer) DelHost(ipdst IpAddr, vlanif string) error {
+	log.Printf("Compose.DelHost: %s on %s", ipdst, vlanif)
 	ethsrc := a.findPortAddr(vlanif)
 
 	return a.delFlows(&ovs.MatchFlow{
-		Cookie:   0x2041,
-		Table:    20,
+		Cookie:   CookieFib,
+		Table:    TableFib,
 		Protocol: ovs.ProtocolIPv4,
 		Matches: []ovs.Match{
-			ovs.NetworkDestination(ipdst),
+			ovs.NetworkDestination(ipdst.Str()),
 			ovs.DataLinkDestination(ethsrc),
 		},
 	})
@@ -218,8 +245,68 @@ func (a *Composer) delFlows(match *ovs.MatchFlow) error {
 	return err
 }
 
+func (a *Composer) AddRoute(ipdst IpPrefix, ipgw IpAddr, vlanif string) error {
+	// table=19 RIB
+	log.Printf("Compose.AddRoute: %s -> %s on %s", ipdst, ipgw, vlanif)
+	ethsrc := a.findPortAddr(vlanif)
+
+	a.addFlow(&ovs.Flow{
+		Priority: 100,
+		Cookie:   CookieRib,
+		Table:    TableRib,
+		Protocol: ovs.ProtocolIPv4,
+		Matches: []ovs.Match{
+			ovs.NetworkDestination(ipdst.Str()),
+			ovs.DataLinkDestination(ethsrc),
+		},
+		Actions: []ovs.Action{
+			ovs.Load(ipgw.Hex(), "reg0"),
+			ovs.Resubmit(0, 20),
+		},
+	})
+	return nil
+}
+
+func (a *Composer) DelRoute(ipdst IpPrefix, vlanif string) error {
+	// table=19 RIB
+	log.Printf("Compose.DelRoute: %s on %s", ipdst, vlanif)
+	ethsrc := a.findPortAddr(vlanif)
+
+	a.delFlows(&ovs.MatchFlow{
+		Cookie:   CookieRib,
+		Table:    TableRib,
+		Protocol: ovs.ProtocolIPv4,
+		Matches: []ovs.Match{
+			ovs.NetworkDestination(ipdst.Str()),
+			ovs.DataLinkDestination(ethsrc),
+		},
+	})
+	return nil
+}
+
 type HwAddr string
 
-func (m HwAddr) hex() string {
+func (m HwAddr) Hex() string {
 	return fmt.Sprintf("0x%s", strings.Replace(string(m), ":", "", 5))
+}
+
+type IpAddr string
+
+func (i IpAddr) Hex() string {
+	addr := net.ParseIP(string(i))
+	if addr != nil {
+		bytes := addr.To4()
+		return fmt.Sprintf("0x%02x%02x%02x%02x", bytes[0], bytes[1], bytes[2], bytes[3])
+	}
+	return ""
+}
+
+func (i IpAddr) Str() string {
+	return string(i)
+}
+
+type IpPrefix string
+
+func (i IpPrefix) Str() string {
+	return string(i)
 }

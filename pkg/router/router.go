@@ -19,7 +19,9 @@ type Router struct {
 }
 
 func (v *Router) Init() {
-	v.compose = &Composer{}
+	v.compose = &Composer{
+		brname: "br-vrr",
+	}
 	v.compose.Init()
 
 	v.iproute = &IPRoute{
@@ -77,36 +79,57 @@ func (v *Router) DelInterface(data schema.Interface) error {
 	return v.compose.delPort(data.Name)
 }
 
-func (v *Router) OnNeighbor(update uint16, nei netlink.Neigh) error {
-	log.Printf("Router.OnNeighbor: Type=%d, Neigh=%+v", update, nei)
-	link, err := netlink.LinkByIndex(nei.LinkIndex)
-	if err != nil {
-		log.Printf("Router.OnNeighbor: %v", err)
-		return err
-	}
-	attr := link.Attrs()
-	port := attr.Name
-	if !strings.HasPrefix(port, "vlan") {
+func (v *Router) OnNeighbor(update uint16, host netlink.Neigh) error {
+	attr := FindLinkAttr(host.LinkIndex)
+	if attr == nil || !strings.HasPrefix(attr.Name, "vlan") {
 		return nil
 	}
 
-	ipdst := nei.IP.String()
-	ethdst := nei.HardwareAddr.String()
+	log.Printf("Router.OnNeighbor: Type=%d, Host=%+v", update, host)
 
+	port := attr.Name
+	ipdst := host.IP.String()
+	ethdst := host.HardwareAddr.String()
 	switch update {
-	case 0, 28:
+	case UpdateNeighNew, UpdateNeighAdd:
 		if ethdst == "" {
 			return nil
 		}
-		v.compose.AddRoute(ipdst, HwAddr(ethdst), port)
-	case 29:
-		v.compose.DelRoute(ipdst, port)
+		v.compose.AddHost(IpAddr(ipdst), HwAddr(ethdst), port)
+	case UpdateNeighDel:
+		v.compose.DelHost(IpAddr(ipdst), port)
 	}
 
 	return nil
 }
 
-func (v *Router) OnRoute(update uint16, route netlink.Route) error {
-	log.Printf("Router.OnRoute: Type=%d, Neigh=%+v", update, route)
+func FindLinkAttr(index int) *netlink.LinkAttrs {
+	link, err := netlink.LinkByIndex(index)
+	if err != nil {
+		return nil
+	}
+	return link.Attrs()
+}
+
+func (v *Router) OnRoute(update uint16, rule netlink.Route) error {
+	attr := FindLinkAttr(rule.LinkIndex)
+	if attr == nil || !strings.HasPrefix(attr.Name, "vlan") {
+		return nil
+	}
+	log.Printf("Router.OnRoute: Type=%d, Rule=%+v", update, rule)
+
+	port := attr.Name
+	ipdst := rule.Dst.String()
+	ipgw := rule.Gw.String()
+	switch update {
+	case UpdateRouteAdd, UpdateRouteNew:
+		if ipgw == "" || ipgw == "<nil>" {
+			return nil
+		}
+		v.compose.AddRoute(IpPrefix(ipdst), IpAddr(ipgw), port)
+	case UpdateRouteDel:
+		v.compose.DelRoute(IpPrefix(ipdst), port)
+	}
+
 	return nil
 }
