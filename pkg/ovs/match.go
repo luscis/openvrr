@@ -1551,3 +1551,23 @@ func (m *fieldMatch) GoString() string {
 func (m *fieldMatch) MarshalText() ([]byte, error) {
 	return bprintf("%s=%s", m.field, m.srcOrValue), nil
 }
+
+func DecTTL() Match {
+	return &decTTLMatch{}
+}
+
+// decTTLMatch implements the Match interface.
+type decTTLMatch struct {
+}
+
+var _ Match = &decTTLMatch{}
+
+// GoString implements Match.
+func (m *decTTLMatch) GoString() string {
+	return "ovs.DecTTL"
+}
+
+// MarshalText implements Match.
+func (m *decTTLMatch) MarshalText() ([]byte, error) {
+	return bprintf("dec_ttl"), nil
+}

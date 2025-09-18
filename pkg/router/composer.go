@@ -209,6 +209,7 @@ func (a *Composer) AddHost(ipdst IpAddr, ethdst HwAddr, vlanif string) error {
 			ovs.Load(ethdst.Hex(), "NXM_OF_ETH_DST"),
 			ovs.Load(vlanid, "NXM_OF_VLAN_TCI"),
 			ovs.Load(portid, "NXM_OF_IN_PORT"),
+			ovs.DecTTL(),
 			ovs.Resubmit(0, 30),
 		},
 	})
