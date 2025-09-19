@@ -243,7 +243,7 @@ func (a *Composer) DelHost(ipdst IpAddr, vlanif string) error {
 		Table:    TableFib,
 		Protocol: ovs.ProtocolIPv4,
 		Matches: []ovs.Match{
-			ovs.NetworkDestination(ipdst.Str()),
+			ovs.FieldMatch("reg0", ipdst.Hex()),
 			ovs.DataLinkDestination(ethsrc),
 		},
 	})
