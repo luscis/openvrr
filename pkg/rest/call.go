@@ -8,4 +8,5 @@ type Caller interface {
 	AddInterface(data schema.Interface) error
 	DelInterface(data schema.Interface) error
 	ListInterface() ([]schema.Interface, error)
+	ListForward() ([]schema.IPForward, error)
 }

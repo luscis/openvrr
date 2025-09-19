@@ -11,14 +11,26 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
+type IPForwards map[string]schema.IPForward
+
+func (f IPForwards) Add(value schema.IPForward) {
+	f[value.Prefix] = value
+}
+
+func (f IPForwards) Remove(prefix string) {
+	delete(f, prefix)
+}
+
 type Vrr struct {
 	ipneigh *IPNeighbor
 	iproute *IPRoute
 	compose *Composer
 	http    *Http
+	forward IPForwards
 }
 
 func (v *Vrr) Init() {
+	v.forward = make(map[string]schema.IPForward)
 	v.compose = &Composer{
 		brname: "br-vrr",
 	}
@@ -114,9 +126,17 @@ func (v *Vrr) OnNeighbor(update uint16, host netlink.Neigh) error {
 		if ethdst == "" || host.IP.IsMulticast() {
 			return nil
 		}
+
 		v.compose.AddHost(IpAddr(ipdst), HwAddr(ethdst), port)
+		v.forward.Add(schema.IPForward{
+			Prefix:    ipdst,
+			NextHop:   ipdst,
+			LLAddr:    ethdst,
+			Interface: port,
+		})
 	case UpdateNeighDel:
 		v.compose.DelHost(IpAddr(ipdst), port)
+		v.forward.Remove(ipdst)
 	}
 
 	return nil
@@ -146,9 +166,23 @@ func (v *Vrr) OnRoute(update uint16, rule netlink.Route) error {
 			return nil
 		}
 		v.compose.AddRoute(IpPrefix(ipdst), IpAddr(ipgw), port)
+		v.forward.Add(schema.IPForward{
+			Prefix:    ipdst,
+			NextHop:   ipgw,
+			Interface: port,
+		})
 	case UpdateRouteDel:
 		v.compose.DelRoute(IpPrefix(ipdst), port)
+		v.forward.Remove(ipdst)
 	}
 
 	return nil
+}
+
+func (v *Vrr) ListForward() ([]schema.IPForward, error) {
+	var items []schema.IPForward
+	for _, value := range v.forward {
+		items = append(items, value)
+	}
+	return items, nil
 }

@@ -116,6 +116,7 @@ func Register() *App {
 	app.Init()
 
 	Interface{}.Commands(app)
+	Forward{}.Commands(app)
 
 	return app
 }

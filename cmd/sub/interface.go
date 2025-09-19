@@ -58,7 +58,7 @@ func (u Interface) List(c *cli.Context) error {
 func (u Interface) Commands(app *App) {
 	app.Command(&cli.Command{
 		Name:  "interface",
-		Usage: "Configure interfaces",
+		Usage: "Network interface",
 		Subcommands: []*cli.Command{
 			{
 				Name:  "add",
