@@ -1,0 +1,22 @@
+version: "2.3"
+services:
+  frr:
+    restart: always
+    image: "luscis/openvrr:latest.amd64.deb"
+    network_mode: host
+    privileged: true
+    entrypoint: ["/opt/openvrr/frr.sh"]
+    volumes:
+      - /opt/openvrr/etc/frr:/etc/frr
+  vrr:
+    restart: always
+    image: "luscis/openvrr:latest.amd64.deb"
+    privileged: true
+    network_mode: host
+    entrypoint: ["/opt/openvrr/vrr.sh"]
+    volumes:
+      - /opt/openvrr/etc/openvrr:/etc/openvrr
+      - /opt/openvrr/etc/frr:/etc/frr
+      - /var/run/openvswitch:/var/run/openvswitch
+    depends_on:
+      - frr
