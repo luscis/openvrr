@@ -1,8 +1,23 @@
 version: "2.3"
 services:
+  ovsdb-server:
+    image: "luscis/openvrr:v25.8.amd64"
+    entrypoint: ["/opt/openvrr/ovsdb-server.sh"]
+    volumes:
+      - /opt/openvrr/run/openvswitch:/run/openvswitch
+      - /opt/openvrr/etc/openvswitch:/etc/openvswitch
+  ovs-vswitchd:
+    image: "luscis/openvrr:v25.8.amd64"
+    privileged: true
+    network_mode: host
+    entrypoint: ["/opt/openvrr/ovs-vswitchd.sh"]
+    volumes:
+      - /opt/openvrr/run/openvswitch:/run/openvswitch
+    depends_on:
+      - ovsdb-server
   frr:
     restart: always
-    image: "luscis/openvrr:latest.amd64.deb"
+    image: "luscis/openvrr:v25.8.amd64"
     network_mode: host
     privileged: true
     entrypoint: ["/opt/openvrr/frr.sh"]
@@ -10,13 +25,14 @@ services:
       - /opt/openvrr/etc/frr:/etc/frr
   vrr:
     restart: always
-    image: "luscis/openvrr:latest.amd64.deb"
+    image: "luscis/openvrr:v25.8.amd64"
     privileged: true
     network_mode: host
     entrypoint: ["/opt/openvrr/vrr.sh"]
     volumes:
-      - /opt/openvrr/etc/openvrr:/etc/openvrr
+      - /opt/openvrr/etc/luscis/openvrr:/etc/openvrr
       - /opt/openvrr/etc/frr:/etc/frr
-      - /var/run/openvswitch:/var/run/openvswitch
+      - /opt/openvrr/run/openvswitch:/run/openvswitch
     depends_on:
+      - ovs-vswitchd
       - frr

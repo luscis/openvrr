@@ -13,13 +13,12 @@ RUN apt install -y frr openvswitch-switch
 
 RUN mkdir -p /opt/openvrr
 
-ADD vrr.sh /opt/openvrr
-ADD frr.sh /opt/openvrr
+COPY vrr.sh frr.sh \
+  ovsdb-server.sh ovs-vswitchd.sh \
+  /opt/openvrr/
+RUN chmod +x /opt/openvrr/*.sh
 
-RUN chmod +x /opt/openvrr/vrr.sh
-RUN chmod +x /opt/openvrr/frr.sh
-
-LABEL application="OpenLAN Network Solutions"
+LABEL application="Luscis Network Solutions"
 LABEL maintainer="danieldin95@163.com"
 
 CMD ["/opt/openvrr/vrr.sh"]

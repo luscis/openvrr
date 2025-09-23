@@ -27,7 +27,7 @@ vrr: env
 
 docker:
 	cp -rf $(SD)/docker/Dockerfile $(BD)
-	cp -rf $(SD)/docker/script/{vrr.sh,frr.sh} $(BD)
+	cp -rf $(SD)/docker/script/*.sh $(BD)
 	cd $(BD) && sudo docker build -t luscis/openvrr:$(VER).$(ARCH) \
 	--build-arg http_proxy="${http_proxy}" --build-arg https_proxy="${https_proxy}" \
 	--file Dockerfile .
