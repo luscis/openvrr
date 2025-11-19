@@ -79,10 +79,14 @@ func (v *Vrr) AddVlan(data schema.Interface) error {
 	defer v.mutex.Unlock()
 
 	if data.Tag > 0 {
-		return v.compose.addVlanTag(data.Name, data.Tag)
+		if err := v.compose.addVlanTag(data.Name, data.Tag); err != nil {
+			return err
+		}
 	}
 	if data.Trunks != "" {
-		return v.compose.addVlanTrunks(data.Name, data.Trunks)
+		if err := v.compose.addVlanTrunks(data.Name, data.Trunks); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -90,6 +94,17 @@ func (v *Vrr) AddVlan(data schema.Interface) error {
 func (v *Vrr) DelVlan(data schema.Interface) error {
 	v.mutex.Lock()
 	defer v.mutex.Unlock()
+
+	if data.Tag == 4095 {
+		if err := v.compose.delVlanTag(data.Name); err != nil {
+			return err
+		}
+	}
+	if data.Trunks == "all" {
+		if err := v.compose.delVlanTrunks(data.Name); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }

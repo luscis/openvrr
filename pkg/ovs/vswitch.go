@@ -56,7 +56,13 @@ func (v *VSwitchService) AddPortWith(bridge string, port string, ifs InterfaceOp
 	args = append(args, ifs.slice()...)
 
 	_, err := v.exec(args...)
+	return err
+}
 
+func (v *VSwitchService) ClearPort(port, column string) error {
+	args := []string{"clear", "port", port, column}
+
+	_, err := v.exec(args...)
 	return err
 }
 
@@ -469,10 +475,10 @@ func (i PortOptions) slice() []string {
 		s = append(s, fmt.Sprintf("tag=%d", i.Tag))
 	}
 	if i.Trunks != "" {
-		s = append(s, "trunks=%s", i.Trunks)
+		s = append(s, fmt.Sprintf("trunks=%s", i.Trunks))
 	}
 	if i.VlanMode != "" {
-		s = append(s, "vlan_mode=%s", i.VlanMode)
+		s = append(s, fmt.Sprintf("vlan_mode=%s", i.VlanMode))
 	}
 
 	return s

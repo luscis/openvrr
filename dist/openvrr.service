@@ -1,0 +1,11 @@
+[Unit]
+Description=OpenVRR daemon
+After=openvswitch.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/openvrr
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

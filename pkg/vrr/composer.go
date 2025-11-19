@@ -88,6 +88,18 @@ func (a *Composer) addVlanTag(port string, tag int) error {
 	return nil
 }
 
+func (a *Composer) delVlanTag(port string) error {
+	if !a.hasPort(port) {
+		return nil
+	}
+
+	if err := a.vsctl.ClearPort(port, "tag"); err != nil {
+		log.Printf("Composer.delVlanTag: %v\n", err)
+		return err
+	}
+	return nil
+}
+
 func (a *Composer) addVlanTrunks(port, trunks string) error {
 	if !a.hasPort(port) {
 		if err := a.vsctl.AddPort(a.brname, port); err != nil {
@@ -98,6 +110,18 @@ func (a *Composer) addVlanTrunks(port, trunks string) error {
 	ps := ovs.PortOptions{Trunks: trunks}
 	if err := a.vsctl.Set.Port(port, ps); err != nil {
 		log.Printf("Composer.addVlanTrunks.set: %v\n", err)
+		return err
+	}
+	return nil
+}
+
+func (a *Composer) delVlanTrunks(port string) error {
+	if !a.hasPort(port) {
+		return nil
+	}
+
+	if err := a.vsctl.ClearPort(port, "trunks"); err != nil {
+		log.Printf("Composer.delVlanTrunks: %v\n", err)
 		return err
 	}
 	return nil

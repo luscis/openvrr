@@ -123,6 +123,22 @@ func (s VLAN) Add(c *cli.Context) error {
 	return nil
 }
 
+func (s VLAN) Remove(c *cli.Context) error {
+	url := s.Url(c.String("url"))
+	data := &schema.Interface{
+		Name:   c.String("interface"),
+		Tag:    c.Int("tag"),
+		Trunks: c.String("trunks"),
+	}
+
+	clt := s.NewHttp(c.String("token"))
+	if err := clt.DeleteJSON(url, data, nil); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (s VLAN) Commands() *cli.Command {
 	return &cli.Command{
 		Name:  "vlan",
@@ -137,6 +153,16 @@ func (s VLAN) Commands() *cli.Command {
 					&cli.StringFlag{Name: "trunks"},
 				},
 				Action: s.Add,
+			},
+			{
+				Name:  "remove",
+				Usage: "remove a vlan",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "interface", Required: true},
+					&cli.IntFlag{Name: "tag", Value: 4095},
+					&cli.StringFlag{Name: "trunks", Value: "all"},
+				},
+				Action: s.Remove,
 			},
 			{
 				Name:   "list",
