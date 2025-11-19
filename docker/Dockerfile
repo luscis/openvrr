@@ -20,5 +20,6 @@ RUN chmod +x /opt/openvrr/*.sh
 
 LABEL application="Luscis Network Solutions"
 LABEL maintainer="danieldin95@163.com"
+LABEL org.opencontainers.image.source=https://github.com/luscis/openvrr
 
 CMD ["/opt/openvrr/vrr.sh"]

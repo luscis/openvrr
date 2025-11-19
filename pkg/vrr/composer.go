@@ -57,10 +57,27 @@ func (a *Composer) listPorts() ([]ovs.PortData, error) {
 	return items, nil
 }
 
+func (a *Composer) hasPort(name string) bool {
+	ports, err := a.vsctl.ListPorts(a.brname)
+	if err != nil {
+		log.Printf("Composer.hasPort: %v\n", err)
+		return false
+	}
+
+	for _, port := range ports {
+		if port == name {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *Composer) addVlanTag(port string, tag int) error {
-	if err := a.vsctl.AddPort(a.brname, port); err != nil {
-		log.Printf("Composer.addVlanTag.add: %v\n", err)
-		return err
+	if !a.hasPort(port) {
+		if err := a.vsctl.AddPort(a.brname, port); err != nil {
+			log.Printf("Composer.addVlanTag.add: %v\n", err)
+			return err
+		}
 	}
 
 	ps := ovs.PortOptions{Tag: tag}
@@ -72,11 +89,12 @@ func (a *Composer) addVlanTag(port string, tag int) error {
 }
 
 func (a *Composer) addVlanTrunks(port, trunks string) error {
-	if err := a.vsctl.AddPort(a.brname, port); err != nil {
-		log.Printf("Composer.addVlanTrunks.add: %v\n", err)
-		return err
+	if !a.hasPort(port) {
+		if err := a.vsctl.AddPort(a.brname, port); err != nil {
+			log.Printf("Composer.addVlanTrunks.add: %v\n", err)
+			return err
+		}
 	}
-
 	ps := ovs.PortOptions{Trunks: trunks}
 	if err := a.vsctl.Set.Port(port, ps); err != nil {
 		log.Printf("Composer.addVlanTrunks.set: %v\n", err)

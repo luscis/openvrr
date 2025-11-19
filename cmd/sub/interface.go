@@ -139,7 +139,7 @@ func (s VLAN) Commands() *cli.Command {
 				Action: s.Add,
 			},
 			{
-				Name:   "List",
+				Name:   "list",
 				Usage:  "List all vlan",
 				Action: s.List,
 			},
