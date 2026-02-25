@@ -6,4 +6,6 @@ func Add(r *mux.Router, call Caller) {
 	Interface{call: call}.Router(r)
 	Vlan{call: call}.Router(r)
 	Forward{call: call}.Router(r)
+	SNAT{call: call}.Router(r)
+	DNAT{call: call}.Router(r)
 }

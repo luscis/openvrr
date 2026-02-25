@@ -239,3 +239,31 @@ func (v *Vrr) ListForward() ([]schema.IPForward, error) {
 	}
 	return items, nil
 }
+
+func (v *Vrr) AddSNAT(data schema.SNAT) error {
+	v.mutex.Lock()
+	defer v.mutex.Unlock()
+
+	return v.compose.AddSNAT(data.Source, data.SourceTo)
+}
+
+func (v *Vrr) DelSNAT(data schema.SNAT) error {
+	v.mutex.Lock()
+	defer v.mutex.Unlock()
+
+	return v.compose.DelSNAT(data.Source)
+}
+
+func (v *Vrr) AddDNAT(data schema.DNAT) error {
+	v.mutex.Lock()
+	defer v.mutex.Unlock()
+
+	return v.compose.AddDNAT(data.Dest, data.DestTo)
+}
+
+func (v *Vrr) DelDNAT(data schema.DNAT) error {
+	v.mutex.Lock()
+	defer v.mutex.Unlock()
+
+	return v.compose.DelDNAT(data.Dest)
+}

@@ -9,4 +9,8 @@ type Caller interface {
 	DelInterface(data schema.Interface) error
 	ListInterface() ([]schema.Interface, error)
 	ListForward() ([]schema.IPForward, error)
+	AddSNAT(data schema.SNAT) error
+	DelSNAT(data schema.SNAT) error
+	AddDNAT(data schema.DNAT) error
+	DelDNAT(data schema.DNAT) error
 }

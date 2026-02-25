@@ -117,6 +117,8 @@ func Register() *App {
 
 	Interface{}.Commands(app)
 	Forward{}.Commands(app)
+	SNAT{}.Commands(app)
+	DNAT{}.Commands(app)
 
 	return app
 }

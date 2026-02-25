@@ -11,6 +11,8 @@ import (
 
 const (
 	TableIn  = 0
+	TableCt  = 10
+	TableNat = 12
 	TableRib = 19
 	TableFib = 20
 	TableFdb = 30
@@ -184,7 +186,7 @@ func (a *Composer) Init() {
 		Protocol: ovs.ProtocolIPv4,
 		Table:    TableIn,
 		Actions: []ovs.Action{
-			ovs.Resubmit(0, 19),
+			ovs.Resubmit(0, TableCt),
 		},
 	})
 	// table=0 IN
@@ -194,6 +196,56 @@ func (a *Composer) Init() {
 		Table:    TableIn,
 		Actions: []ovs.Action{
 			ovs.Normal(),
+		},
+	})
+	// table=10 CT
+	a.addFlow(&ovs.Flow{
+		Priority: 100,
+		Cookie:   CookieIn,
+		Table:    TableCt,
+		Protocol: ovs.ProtocolIPv4,
+		Actions: []ovs.Action{
+			ovs.ConnectionTracking(fmt.Sprintf("zone=10,table=%d", TableNat)),
+		},
+	})
+	// table=12 NAT
+	a.addFlow(&ovs.Flow{
+		Priority: 100,
+		Cookie:   CookieIn,
+		Table:    TableNat,
+		Protocol: ovs.ProtocolIPv4,
+		Matches: []ovs.Match{
+			ovs.ConnectionTrackingState(
+				ovs.SetState(ovs.CTStateTracked),
+				ovs.SetState(ovs.CTStateReply),
+			),
+		},
+		Actions: []ovs.Action{
+			ovs.ConnectionTracking(fmt.Sprintf("nat,zone=10,table=%d", TableRib)),
+		},
+	})
+	a.addFlow(&ovs.Flow{
+		Priority: 100,
+		Cookie:   CookieIn,
+		Table:    TableNat,
+		Protocol: ovs.ProtocolIPv4,
+		Matches: []ovs.Match{
+			ovs.ConnectionTrackingState(
+				ovs.SetState(ovs.CTStateTracked),
+				ovs.SetState(ovs.CTStateEstablished),
+			),
+		},
+		Actions: []ovs.Action{
+			ovs.ConnectionTracking(fmt.Sprintf("nat,zone=10,table=%d", TableRib)),
+		},
+	})
+	a.addFlow(&ovs.Flow{
+		Priority: 10,
+		Cookie:   CookieIn,
+		Table:    TableNat,
+		Protocol: ovs.ProtocolIPv4,
+		Actions: []ovs.Action{
+			ovs.Resubmit(0, TableRib),
 		},
 	})
 	// table=19 RIB
@@ -334,7 +386,7 @@ func (a *Composer) DelRoute(ipdst IpPrefix, vlanif string) error {
 	log.Printf("Compose.DelRoute: %s on %s", ipdst, vlanif)
 	ethsrc := a.findPortAddr(vlanif)
 
-	a.delFlows(&ovs.MatchFlow{
+	return a.delFlows(&ovs.MatchFlow{
 		Cookie:   CookieRib,
 		Table:    TableRib,
 		Protocol: ovs.ProtocolIPv4,
@@ -343,7 +395,107 @@ func (a *Composer) DelRoute(ipdst IpPrefix, vlanif string) error {
 			ovs.DataLinkDestination(ethsrc),
 		},
 	})
-	return nil
+}
+
+func (a *Composer) AddSNAT(source, sourceTo string) error {
+	log.Printf("Compose.AddSNAT: %s -> %s", source, sourceTo)
+
+	return a.addFlow(&ovs.Flow{
+		Priority: 60,
+		Cookie:   CookieIn,
+		Table:    TableNat,
+		Protocol: ovs.ProtocolIPv4,
+		Matches: []ovs.Match{
+			ovs.ConnectionTrackingState(
+				ovs.SetState(ovs.CTStateTracked),
+				ovs.SetState(ovs.CTStateNew),
+			),
+			ovs.NetworkSource(source),
+		},
+		Actions: []ovs.Action{
+			ovs.ConnectionTracking(fmt.Sprintf("commit,nat(src=%s),zone=10,table=%d", sourceTo, TableRib)),
+		},
+	})
+}
+
+func (a *Composer) DelSNAT(source string) error {
+	log.Printf("Compose.DelSNAT: %s", source)
+
+	return a.delFlows(&ovs.MatchFlow{
+		Cookie:   CookieIn,
+		Table:    TableNat,
+		Protocol: ovs.ProtocolIPv4,
+		Matches: []ovs.Match{
+			ovs.ConnectionTrackingState(
+				ovs.SetState(ovs.CTStateTracked),
+				ovs.SetState(ovs.CTStateNew),
+			),
+			ovs.NetworkSource(source),
+		},
+	})
+}
+
+func parseDest(data string) (string, uint16, error) {
+	var dAddr string
+	var dport uint16
+
+	valus := strings.SplitN(data, ":", 2)
+	if len(valus) != 2 {
+		return "", 0, fmt.Errorf("invalid destination: %s", data)
+	}
+	dAddr = valus[0]
+	if _, err := fmt.Sscanf(valus[1], "%d", &dport); err != nil {
+		return "", 0, fmt.Errorf("invalid destination port: %v", err)
+	}
+	return dAddr, dport, nil
+}
+
+func (a *Composer) AddDNAT(dest, destTo string) error {
+	daddr, dport, err := parseDest(dest)
+	if err != nil {
+		return err
+	}
+	log.Printf("Compose.AddDNAT: %s -> %s", dest, destTo)
+
+	return a.addFlow(&ovs.Flow{
+		Priority: 80,
+		Cookie:   CookieIn,
+		Table:    TableNat,
+		Protocol: ovs.ProtocolTCPv4,
+		Matches: []ovs.Match{
+			ovs.ConnectionTrackingState(
+				ovs.SetState(ovs.CTStateTracked),
+				ovs.SetState(ovs.CTStateNew),
+			),
+			ovs.NetworkDestination(daddr),
+			ovs.TransportDestinationPort(dport),
+		},
+		Actions: []ovs.Action{
+			ovs.ConnectionTracking(fmt.Sprintf("commit,nat(dst=%s),zone=10,table=%d", destTo, TableRib)),
+		},
+	})
+}
+
+func (a *Composer) DelDNAT(dest string) error {
+	daddr, dport, err := parseDest(dest)
+	if err != nil {
+		return err
+	}
+	log.Printf("Compose.DelDNAT: %s", dest)
+
+	return a.delFlows(&ovs.MatchFlow{
+		Cookie:   CookieIn,
+		Table:    TableNat,
+		Protocol: ovs.ProtocolTCPv4,
+		Matches: []ovs.Match{
+			ovs.ConnectionTrackingState(
+				ovs.SetState(ovs.CTStateTracked),
+				ovs.SetState(ovs.CTStateNew),
+			),
+			ovs.NetworkDestination(daddr),
+			ovs.TransportDestinationPort(dport),
+		},
+	})
 }
 
 type HwAddr string
