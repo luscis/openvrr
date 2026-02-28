@@ -207,7 +207,7 @@ func (a *Composer) Init() {
 		Table:    TableCt,
 		Protocol: ovs.ProtocolIPv4,
 		Actions: []ovs.Action{
-			ovs.ConnectionTracking(fmt.Sprintf("zone=10,table=%d", TableNat)),
+			ovs.ConnectionTracking(fmt.Sprintf("nat,zone=10,table=%d", TableNat)),
 		},
 	})
 	// table=12 NAT
@@ -223,7 +223,7 @@ func (a *Composer) Init() {
 			),
 		},
 		Actions: []ovs.Action{
-			ovs.ConnectionTracking(fmt.Sprintf("nat,zone=10,table=%d", TableRib)),
+			ovs.Resubmit(0, TableRib),
 		},
 	})
 	a.addFlow(&ovs.Flow{
@@ -238,7 +238,7 @@ func (a *Composer) Init() {
 			),
 		},
 		Actions: []ovs.Action{
-			ovs.ConnectionTracking(fmt.Sprintf("nat,zone=10,table=%d", TableRib)),
+			ovs.Resubmit(0, TableRib),
 		},
 	})
 	a.addFlow(&ovs.Flow{
