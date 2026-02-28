@@ -24,8 +24,7 @@ func (f IPForwards) Remove(prefix string) {
 }
 
 type Gateway struct {
-	neighbor  *KernelNeighbor
-	route     *KernelRoute
+	kernel    *KernelRegister
 	compose   *Composer
 	http      *Http
 	forward   IPForwards
@@ -41,30 +40,27 @@ const (
 )
 
 func (v *Gateway) Init() {
+	v.forward = make(map[string]schema.IPForward)
+	v.linkAttrs = make(map[int]*netlink.LinkAttrs)
+
 	if ns, err := netns.GetFromName(vrname); err != nil {
 		log.Fatalf("Gateway.Init: Get netns %v", err)
 	} else {
 		v.ns = ns
 	}
-	v.forward = make(map[string]schema.IPForward)
-	v.linkAttrs = make(map[int]*netlink.LinkAttrs)
 
 	v.compose = &Composer{
 		brname: vrname,
 	}
 	v.compose.Init()
 
-	v.route = &KernelRoute{
-		On: v.OnRoute,
-		ns: v.ns,
+	v.kernel = &KernelRegister{
+		ns:         v.ns,
+		OnAddress:  v.OnAddress,
+		OnRoute:    v.OnRoute,
+		OnNeighbor: v.OnNeighbor,
 	}
-	v.route.Init()
-
-	v.neighbor = &KernelNeighbor{
-		On: v.OnNeighbor,
-		ns: v.ns,
-	}
-	v.neighbor.Init()
+	v.kernel.Init()
 
 	v.http = &Http{
 		listen:    httpListen,
@@ -75,8 +71,7 @@ func (v *Gateway) Init() {
 }
 
 func (v *Gateway) Start() {
-	v.neighbor.Start()
-	v.route.Start()
+	v.kernel.Start()
 	v.compose.Start()
 	v.http.Start()
 }
@@ -288,4 +283,25 @@ func (v *Gateway) DelDNAT(data schema.DNAT) error {
 	defer v.mutex.Unlock()
 
 	return v.compose.DelDNAT(data.Dest)
+}
+
+func (v *Gateway) OnAddress(data netlink.AddrUpdate) error {
+	v.mutex.Lock()
+	defer v.mutex.Unlock()
+
+	log.Printf("Gateway.OnAddress: new=%v, Data=%+v", data.NewAddr, data)
+
+	attr := v.findLinkAttr(data.LinkIndex)
+	if attr == nil || !strings.HasPrefix(attr.Name, "vlan") {
+		return nil
+	}
+
+	switch data.NewAddr {
+	case true:
+		v.compose.AddLocal(data.LinkAddress.String())
+	case false:
+		v.compose.DelLocal(data.LinkAddress.String())
+	}
+
+	return nil
 }

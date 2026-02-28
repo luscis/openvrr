@@ -61,7 +61,7 @@ func (n *KernelNeighbor) watch() {
 
 	err := netlink.NeighSubscribeAt(n.ns, neighCh, doneCh)
 	if err != nil {
-		log.Fatalf("KernelNeighbor.watch: subscribe to updates: %v", err)
+		log.Fatalf("KernelNeighbor.watch: subscribe %v", err)
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -121,7 +121,7 @@ func (r *KernelRoute) watch() {
 
 	err := netlink.RouteSubscribeAt(r.ns, routeCh, doneCh)
 	if err != nil {
-		log.Fatalf("KernelRoute.watch: subscribe to updates: %v", err)
+		log.Fatalf("KernelRoute.watch: subscribe %v", err)
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -137,4 +137,103 @@ func (r *KernelRoute) watch() {
 			return
 		}
 	}
+}
+
+func AddrListAt(ns netns.NsHandle) ([]netlink.Addr, error) {
+	if ns != netns.None() {
+		if h, err := netlink.NewHandleAt(ns); err != nil {
+			return nil, err
+		} else {
+			defer h.Close()
+			return h.AddrList(nil, syscall.AF_INET)
+		}
+	}
+	return netlink.AddrList(nil, syscall.AF_INET)
+}
+
+type KernelAddr struct {
+	ns netns.NsHandle
+	On func(netlink.AddrUpdate) error
+}
+
+func (r *KernelAddr) Init() {
+}
+
+func (r *KernelAddr) list() {
+	addrs, err := AddrListAt(r.ns)
+	if err != nil {
+		log.Fatalf("KernelAddr.list: %v", err)
+	}
+
+	for _, addr := range addrs {
+		r.On(netlink.AddrUpdate{
+			NewAddr:     true,
+			LinkIndex:   addr.LinkIndex,
+			LinkAddress: *addr.IPNet,
+		})
+	}
+}
+
+func (r *KernelAddr) Start() {
+	r.list()
+	go r.watch()
+}
+
+func (r *KernelAddr) watch() {
+	routeCh := make(chan netlink.AddrUpdate)
+	doneCh := make(chan struct{})
+
+	err := netlink.AddrSubscribeAt(r.ns, routeCh, doneCh)
+	if err != nil {
+		log.Fatalf("KernelAddr.watch: subscribe %v", err)
+	}
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	for {
+		select {
+		case update := <-routeCh:
+			r.On(update)
+
+		case <-sigCh:
+			close(doneCh)
+			return
+		}
+	}
+}
+
+type KernelRegister struct {
+	ns         netns.NsHandle
+	neighbor   *KernelNeighbor
+	route      *KernelRoute
+	addr       *KernelAddr
+	OnAddress  func(netlink.AddrUpdate) error
+	OnRoute    func(uint16, netlink.Route) error
+	OnNeighbor func(uint16, netlink.Neigh) error
+}
+
+func (r *KernelRegister) Init() {
+	r.addr = &KernelAddr{
+		ns: r.ns,
+		On: r.OnAddress,
+	}
+	r.neighbor = &KernelNeighbor{
+		ns: r.ns,
+		On: r.OnNeighbor,
+	}
+	r.route = &KernelRoute{
+		ns: r.ns,
+		On: r.OnRoute,
+	}
+}
+
+func (r *KernelRegister) Start() {
+	r.neighbor.Start()
+	r.route.Start()
+	r.addr.Start()
+}
+
+func (r *KernelRegister) Stop() {
+	// TODO
 }

@@ -212,7 +212,7 @@ func (a *Composer) Init() {
 	})
 	// table=12 NAT
 	a.addFlow(&ovs.Flow{
-		Priority: 100,
+		Priority: 200,
 		Cookie:   CookieIn,
 		Table:    TableNat,
 		Protocol: ovs.ProtocolIPv4,
@@ -227,7 +227,7 @@ func (a *Composer) Init() {
 		},
 	})
 	a.addFlow(&ovs.Flow{
-		Priority: 100,
+		Priority: 200,
 		Cookie:   CookieIn,
 		Table:    TableNat,
 		Protocol: ovs.ProtocolIPv4,
@@ -416,7 +416,7 @@ func (a *Composer) AddSNAT(source, sourceTo string) error {
 	log.Printf("Compose.AddSNAT: %s -> %s", source, sourceTo)
 
 	return a.addFlow(&ovs.Flow{
-		Priority: 60,
+		Priority: 50,
 		Cookie:   CookieIn,
 		Table:    TableNat,
 		Protocol: ovs.ProtocolIPv4,
@@ -473,7 +473,7 @@ func (a *Composer) AddDNAT(dest, destTo string) error {
 	log.Printf("Compose.AddDNAT: %s -> %s", dest, destTo)
 
 	return a.addFlow(&ovs.Flow{
-		Priority: 80,
+		Priority: 160,
 		Cookie:   CookieIn,
 		Table:    TableNat,
 		Protocol: ovs.ProtocolTCPv4,
@@ -509,6 +509,36 @@ func (a *Composer) DelDNAT(dest string) error {
 			),
 			ovs.NetworkDestination(daddr),
 			ovs.TransportDestinationPort(dport),
+		},
+	})
+}
+
+func (a *Composer) AddLocal(addr string) error {
+	log.Printf("Compose.AddLocal: %s", addr)
+
+	return a.addFlow(&ovs.Flow{
+		Priority: 150,
+		Cookie:   CookieIn,
+		Table:    TableNat,
+		Protocol: ovs.ProtocolIPv4,
+		Matches: []ovs.Match{
+			ovs.NetworkDestination(addr),
+		},
+		Actions: []ovs.Action{
+			ovs.Resubmit(0, TableRib),
+		},
+	})
+}
+
+func (a *Composer) DelLocal(addr string) error {
+	log.Printf("Compose.DelLocal: %s", addr)
+
+	return a.delFlows(&ovs.MatchFlow{
+		Cookie:   CookieIn,
+		Table:    TableNat,
+		Protocol: ovs.ProtocolIPv4,
+		Matches: []ovs.Match{
+			ovs.NetworkDestination(addr),
 		},
 	})
 }
