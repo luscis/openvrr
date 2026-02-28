@@ -143,11 +143,13 @@ func (a *Composer) addVlanPort(vlan string) error {
 		log.Printf("Composer.addVlanPort.set.interface: %v\n", err)
 		return err
 	}
-
-	ps := ovs.PortOptions{Tag: a.findVlanId(vlan)}
-	if err := a.vsctl.Set.Port(vlan, ps); err != nil {
-		log.Printf("Composer.addVlanPort.set.port: %v\n", err)
-		return err
+	tag := a.findVlanId(vlan)
+	if tag > 0 {
+		ps := ovs.PortOptions{Tag: tag}
+		if err := a.vsctl.Set.Port(vlan, ps); err != nil {
+			log.Printf("Composer.addVlanPort.set.port: %v\n", err)
+			return err
+		}
 	}
 	return nil
 }
@@ -282,16 +284,19 @@ func (a *Composer) Init() {
 }
 
 func (a *Composer) findPortId(name string) int {
-	vlanid := 0
-	fmt.Sscanf(name, "vlan%d", &vlanid)
-	return vlanid + 32768
+	if strings.HasPrefix(name, "vlan") {
+		vlanid := 0
+		fmt.Sscanf(name, "vlan%d", &vlanid)
+		return vlanid + 32768
+	}
+	return 0
 }
 
 func (a *Composer) findPortAddr(name string) string {
 	if strings.HasPrefix(name, "vlan") {
 		return DefaultVlanMac
 	}
-	return "unkonwn"
+	return ""
 }
 
 func (a *Composer) findVlanId(name string) int {

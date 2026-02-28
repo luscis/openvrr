@@ -35,14 +35,13 @@ type Gateway struct {
 }
 
 const (
-	brname     = "br-vrr"
-	nsname     = "vrr"
+	vrname     = "vrr"
 	tokenFile  = "/etc/openvrr/token"
 	httpListen = "127.0.0.1:10001"
 )
 
 func (v *Gateway) Init() {
-	if ns, err := netns.GetFromName(nsname); err != nil {
+	if ns, err := netns.GetFromName(vrname); err != nil {
 		log.Fatalf("Gateway.Init: Get netns %v", err)
 	} else {
 		v.ns = ns
@@ -51,7 +50,7 @@ func (v *Gateway) Init() {
 	v.linkAttrs = make(map[int]*netlink.LinkAttrs)
 
 	v.compose = &Composer{
-		brname: brname,
+		brname: vrname,
 	}
 	v.compose.Init()
 
