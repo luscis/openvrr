@@ -7,6 +7,7 @@ import (
 	"syscall"
 
 	"github.com/vishvananda/netlink"
+	"github.com/vishvananda/netns"
 )
 
 const (
@@ -18,17 +19,30 @@ const (
 	UpdateRouteDel = 25
 )
 
-type IPNeighbor struct {
+func NeighListAt(ns netns.NsHandle) ([]netlink.Neigh, error) {
+	if ns != netns.None() {
+		if h, err := netlink.NewHandleAt(ns); err != nil {
+			return nil, err
+		} else {
+			defer h.Close()
+			return h.NeighList(0, syscall.AF_INET)
+		}
+	}
+	return netlink.NeighList(0, syscall.AF_INET)
+}
+
+type KernelNeighbor struct {
+	ns netns.NsHandle
 	On func(uint16, netlink.Neigh) error
 }
 
-func (r *IPNeighbor) Init() {
+func (n *KernelNeighbor) Init() {
 }
 
-func (n *IPNeighbor) list() {
-	neighbors, err := netlink.NeighList(0, syscall.AF_INET)
+func (n *KernelNeighbor) list() {
+	neighbors, err := NeighListAt(n.ns)
 	if err != nil {
-		log.Fatalf("IPNeighbor: list routes: %v", err)
+		log.Fatalf("KernelNeighbor.list: %v", err)
 	}
 
 	for _, neigh := range neighbors {
@@ -36,18 +50,18 @@ func (n *IPNeighbor) list() {
 	}
 }
 
-func (n *IPNeighbor) Start() {
+func (n *KernelNeighbor) Start() {
 	n.list()
 	go n.watch()
 }
 
-func (n *IPNeighbor) watch() {
+func (n *KernelNeighbor) watch() {
 	neighCh := make(chan netlink.NeighUpdate)
 	doneCh := make(chan struct{})
 
-	err := netlink.NeighSubscribe(neighCh, doneCh)
+	err := netlink.NeighSubscribeAt(n.ns, neighCh, doneCh)
 	if err != nil {
-		log.Fatalf("IPNeighbor.watch: subscribe to updates: %v", err)
+		log.Fatalf("KernelNeighbor.watch: subscribe to updates: %v", err)
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -65,17 +79,30 @@ func (n *IPNeighbor) watch() {
 	}
 }
 
-type IPRoute struct {
+func RouteListAt(ns netns.NsHandle) ([]netlink.Route, error) {
+	if ns != netns.None() {
+		if h, err := netlink.NewHandleAt(ns); err != nil {
+			return nil, err
+		} else {
+			defer h.Close()
+			return h.RouteList(nil, syscall.AF_INET)
+		}
+	}
+	return netlink.RouteList(nil, syscall.AF_INET)
+}
+
+type KernelRoute struct {
+	ns netns.NsHandle
 	On func(uint16, netlink.Route) error
 }
 
-func (r *IPRoute) Init() {
+func (r *KernelRoute) Init() {
 }
 
-func (r *IPRoute) list() {
-	routes, err := netlink.RouteList(nil, syscall.AF_INET)
+func (r *KernelRoute) list() {
+	routes, err := RouteListAt(r.ns)
 	if err != nil {
-		log.Fatalf("IPRoute.watch: list routes: %v", err)
+		log.Fatalf("KernelRoute.list: %v", err)
 	}
 
 	for _, route := range routes {
@@ -83,18 +110,18 @@ func (r *IPRoute) list() {
 	}
 }
 
-func (r *IPRoute) Start() {
+func (r *KernelRoute) Start() {
 	r.list()
 	go r.watch()
 }
 
-func (r *IPRoute) watch() {
+func (r *KernelRoute) watch() {
 	routeCh := make(chan netlink.RouteUpdate)
 	doneCh := make(chan struct{})
 
-	err := netlink.RouteSubscribe(routeCh, doneCh)
+	err := netlink.RouteSubscribeAt(r.ns, routeCh, doneCh)
 	if err != nil {
-		log.Fatalf("IPRoute.watch: subscribe to updates: %v", err)
+		log.Fatalf("KernelRoute.watch: subscribe to updates: %v", err)
 	}
 
 	sigCh := make(chan os.Signal, 1)

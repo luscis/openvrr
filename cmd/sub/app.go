@@ -116,6 +116,8 @@ func Register() *App {
 	app.Init()
 
 	Interface{}.Commands(app)
+	VLAN{}.Commands(app)
+	Address{}.Commands(app)
 	Forward{}.Commands(app)
 	SNAT{}.Commands(app)
 	DNAT{}.Commands(app)

@@ -57,8 +57,9 @@ func (u Interface) List(c *cli.Context) error {
 
 func (u Interface) Commands(app *App) {
 	app.Command(&cli.Command{
-		Name:  "interface",
-		Usage: "Network interface",
+		Name:   "interface",
+		Usage:  "Network interface",
+		Action: u.List,
 		Subcommands: []*cli.Command{
 			{
 				Name:  "add",
@@ -81,8 +82,6 @@ func (u Interface) Commands(app *App) {
 				Usage:  "List all interfaces",
 				Action: u.List,
 			},
-			VLAN{}.Commands(),
-			Address{}.Commands(),
 		},
 	})
 }
@@ -139,10 +138,11 @@ func (s VLAN) Remove(c *cli.Context) error {
 	return nil
 }
 
-func (s VLAN) Commands() *cli.Command {
-	return &cli.Command{
-		Name:  "vlan",
-		Usage: "Configure VLAN",
+func (s VLAN) Commands(app *App) {
+	app.Command(&cli.Command{
+		Name:   "vlan",
+		Usage:  "Configure VLAN",
+		Action: s.List,
 		Subcommands: []*cli.Command{
 			{
 				Name:  "add",
@@ -170,7 +170,7 @@ func (s VLAN) Commands() *cli.Command {
 				Action: s.List,
 			},
 		},
-	}
+	})
 }
 
 type Address struct {
@@ -180,8 +180,8 @@ func (s Address) Set(c *cli.Context) error {
 	return nil
 }
 
-func (s Address) Commands() *cli.Command {
-	return &cli.Command{
+func (s Address) Commands(app *App) {
+	app.Command(&cli.Command{
 		Name:  "address",
 		Usage: "Configure adress",
 		Subcommands: []*cli.Command{
@@ -196,5 +196,5 @@ func (s Address) Commands() *cli.Command {
 				Action: s.Set,
 			},
 		},
-	}
+	})
 }

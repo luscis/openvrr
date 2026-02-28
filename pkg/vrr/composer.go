@@ -257,7 +257,7 @@ func (a *Composer) Init() {
 		Actions: []ovs.Action{
 			ovs.Push("OXM_OF_IPV4_DST"),
 			ovs.Pop("reg0"),
-			ovs.Resubmit(0, 20),
+			ovs.Resubmit(0, TableFib),
 		},
 	})
 	// table=20 FIB
@@ -267,7 +267,7 @@ func (a *Composer) Init() {
 		Table:    TableFib,
 		Actions: []ovs.Action{
 			ovs.Load("0x0", "reg0"),
-			ovs.Resubmit(0, 30),
+			ovs.Resubmit(0, TableFdb),
 		},
 	})
 	// table=30 FDB
@@ -300,7 +300,7 @@ func (a *Composer) findVlanId(name string) int {
 	return vlanid
 }
 
-func (a *Composer) AddHost(ipdst IpAddr, ethdst HwAddr, vlanif string) error {
+func (a *Composer) AddHost(ipdst IPAddr, ethdst HwAddr, vlanif string) error {
 	// table=20 FIB
 	log.Printf("Compose.AddHost: %s -> %s on %s", ipdst, ethdst, vlanif)
 	ethsrc := a.findPortAddr(vlanif)
@@ -323,12 +323,12 @@ func (a *Composer) AddHost(ipdst IpAddr, ethdst HwAddr, vlanif string) error {
 			ovs.Load(vlanid, "NXM_OF_VLAN_TCI"),
 			ovs.Load(portid, "NXM_OF_IN_PORT"),
 			ovs.DecTTL(),
-			ovs.Resubmit(0, 30),
+			ovs.Resubmit(0, TableFdb),
 		},
 	})
 }
 
-func (a *Composer) DelHost(ipdst IpAddr, vlanif string) error {
+func (a *Composer) DelHost(ipdst IPAddr, vlanif string) error {
 	log.Printf("Compose.DelHost: %s on %s", ipdst, vlanif)
 	ethsrc := a.findPortAddr(vlanif)
 
@@ -359,13 +359,26 @@ func (a *Composer) delFlows(match *ovs.MatchFlow) error {
 	return err
 }
 
-func (a *Composer) AddRoute(ipdst IpPrefix, ipgw IpAddr, vlanif string) error {
+func (a *Composer) AddRoute(ipdst IPPrefix, ipgw IPAddr, vlanif string) error {
 	// table=19 RIB
 	log.Printf("Compose.AddRoute: %s -> %s on %s", ipdst, ipgw, vlanif)
 	ethsrc := a.findPortAddr(vlanif)
 
+	var actions []ovs.Action
+	if ipgw == "<nil>" {
+		actions = []ovs.Action{
+			ovs.Push("OXM_OF_IPV4_DST"),
+			ovs.Pop("reg0"),
+			ovs.Resubmit(0, TableFib),
+		}
+	} else {
+		actions = []ovs.Action{
+			ovs.Load(ipgw.Hex(), "reg0"),
+			ovs.Resubmit(0, TableFib),
+		}
+	}
 	a.addFlow(&ovs.Flow{
-		Priority: 100,
+		Priority: 100 + ipdst.Prefixlen(),
 		Cookie:   CookieRib,
 		Table:    TableRib,
 		Protocol: ovs.ProtocolIPv4,
@@ -373,15 +386,12 @@ func (a *Composer) AddRoute(ipdst IpPrefix, ipgw IpAddr, vlanif string) error {
 			ovs.NetworkDestination(ipdst.Str()),
 			ovs.DataLinkDestination(ethsrc),
 		},
-		Actions: []ovs.Action{
-			ovs.Load(ipgw.Hex(), "reg0"),
-			ovs.Resubmit(0, 20),
-		},
+		Actions: actions,
 	})
 	return nil
 }
 
-func (a *Composer) DelRoute(ipdst IpPrefix, vlanif string) error {
+func (a *Composer) DelRoute(ipdst IPPrefix, vlanif string) error {
 	// table=19 RIB
 	log.Printf("Compose.DelRoute: %s on %s", ipdst, vlanif)
 	ethsrc := a.findPortAddr(vlanif)
@@ -504,9 +514,9 @@ func (m HwAddr) Hex() string {
 	return fmt.Sprintf("0x%s", strings.Replace(string(m), ":", "", 5))
 }
 
-type IpAddr string
+type IPAddr string
 
-func (i IpAddr) Hex() string {
+func (i IPAddr) Hex() string {
 	addr := net.ParseIP(string(i))
 	if addr != nil {
 		bytes := addr.To4()
@@ -515,12 +525,21 @@ func (i IpAddr) Hex() string {
 	return ""
 }
 
-func (i IpAddr) Str() string {
+func (i IPAddr) Str() string {
 	return string(i)
 }
 
-type IpPrefix string
+type IPPrefix string
 
-func (i IpPrefix) Str() string {
+func (i IPPrefix) Str() string {
 	return string(i)
+}
+
+func (i IPPrefix) Prefixlen() int {
+	_, ipnet, err := net.ParseCIDR(string(i))
+	if err != nil {
+		return 0
+	}
+	ones, _ := ipnet.Mask.Size()
+	return ones
 }

@@ -27,8 +27,9 @@ func (u Forward) List(c *cli.Context) error {
 
 func (u Forward) Commands(app *App) {
 	app.Command(&cli.Command{
-		Name:  "forward",
-		Usage: "IP Forward Route",
+		Name:   "forward",
+		Usage:  "IP Forward Route",
+		Action: u.List,
 		Subcommands: []*cli.Command{
 			{
 				Name:   "list",

@@ -58,8 +58,9 @@ func (u SNAT) List(c *cli.Context) error {
 
 func (u SNAT) Commands(app *App) {
 	app.Command(&cli.Command{
-		Name:  "snat",
-		Usage: "Source NAT",
+		Name:   "snat",
+		Usage:  "Source NAT",
+		Action: u.List,
 		Subcommands: []*cli.Command{
 			{
 				Name:  "add",
@@ -140,8 +141,9 @@ func (u DNAT) List(c *cli.Context) error {
 
 func (u DNAT) Commands(app *App) {
 	app.Command(&cli.Command{
-		Name:  "dnat",
-		Usage: "Destination NAT",
+		Name:   "dnat",
+		Usage:  "Destination NAT",
+		Action: u.List,
 		Subcommands: []*cli.Command{
 			{
 				Name:  "add",

@@ -10,6 +10,7 @@ import (
 
 	"github.com/luscis/openvrr/pkg/schema"
 	"github.com/vishvananda/netlink"
+	"github.com/vishvananda/netns"
 )
 
 type IPForwards map[string]schema.IPForward
@@ -22,51 +23,66 @@ func (f IPForwards) Remove(prefix string) {
 	delete(f, prefix)
 }
 
-type Vrr struct {
-	ipneigh   *IPNeighbor
-	iproute   *IPRoute
+type Gateway struct {
+	neighbor  *KernelNeighbor
+	route     *KernelRoute
 	compose   *Composer
 	http      *Http
 	forward   IPForwards
 	linkAttrs map[int]*netlink.LinkAttrs
 	mutex     sync.RWMutex
+	ns        netns.NsHandle
 }
 
-func (v *Vrr) Init() {
+const (
+	brname     = "br-vrr"
+	nsname     = "vrr"
+	tokenFile  = "/etc/openvrr/token"
+	httpListen = "127.0.0.1:10001"
+)
+
+func (v *Gateway) Init() {
+	if ns, err := netns.GetFromName(nsname); err != nil {
+		log.Fatalf("Gateway.Init: Get netns %v", err)
+	} else {
+		v.ns = ns
+	}
 	v.forward = make(map[string]schema.IPForward)
 	v.linkAttrs = make(map[int]*netlink.LinkAttrs)
 
 	v.compose = &Composer{
-		brname: "br-vrr",
+		brname: brname,
 	}
 	v.compose.Init()
 
-	v.iproute = &IPRoute{
+	v.route = &KernelRoute{
 		On: v.OnRoute,
+		ns: v.ns,
 	}
-	v.iproute.Init()
+	v.route.Init()
 
-	v.ipneigh = &IPNeighbor{
+	v.neighbor = &KernelNeighbor{
 		On: v.OnNeighbor,
+		ns: v.ns,
 	}
-	v.ipneigh.Init()
+	v.neighbor.Init()
 
 	v.http = &Http{
-		listen:    "127.0.0.1:10001",
-		adminFile: "/etc/openvrr/token",
+		listen:    httpListen,
+		adminFile: tokenFile,
 		caller:    v,
 	}
 	v.http.Init()
 }
 
-func (v *Vrr) Start() {
-	v.ipneigh.Start()
-	v.iproute.Start()
+func (v *Gateway) Start() {
+	v.neighbor.Start()
+	v.route.Start()
 	v.compose.Start()
 	v.http.Start()
 }
 
-func (v *Vrr) Wait() {
+func (v *Gateway) Wait() {
 	x := make(chan os.Signal, 1)
 	signal.Notify(x, os.Interrupt, syscall.SIGTERM)
 	signal.Notify(x, os.Interrupt, syscall.SIGQUIT) //CTL+/
@@ -74,7 +90,7 @@ func (v *Vrr) Wait() {
 	<-x
 }
 
-func (v *Vrr) AddVlan(data schema.Interface) error {
+func (v *Gateway) AddVlan(data schema.Interface) error {
 	v.mutex.Lock()
 	defer v.mutex.Unlock()
 
@@ -91,7 +107,7 @@ func (v *Vrr) AddVlan(data schema.Interface) error {
 	return nil
 }
 
-func (v *Vrr) DelVlan(data schema.Interface) error {
+func (v *Gateway) DelVlan(data schema.Interface) error {
 	v.mutex.Lock()
 	defer v.mutex.Unlock()
 
@@ -109,21 +125,21 @@ func (v *Vrr) DelVlan(data schema.Interface) error {
 	return nil
 }
 
-func (v *Vrr) AddInterface(data schema.Interface) error {
+func (v *Gateway) AddInterface(data schema.Interface) error {
 	v.mutex.Lock()
 	defer v.mutex.Unlock()
 
 	return v.compose.addVlanPort(data.Name)
 }
 
-func (v *Vrr) DelInterface(data schema.Interface) error {
+func (v *Gateway) DelInterface(data schema.Interface) error {
 	v.mutex.Lock()
 	defer v.mutex.Unlock()
 
 	return v.compose.delPort(data.Name)
 }
 
-func (v *Vrr) ListInterface() ([]schema.Interface, error) {
+func (v *Gateway) ListInterface() ([]schema.Interface, error) {
 	v.mutex.RLock()
 	defer v.mutex.RUnlock()
 
@@ -145,7 +161,7 @@ func (v *Vrr) ListInterface() ([]schema.Interface, error) {
 	return items, nil
 }
 
-func (v *Vrr) OnNeighbor(update uint16, host netlink.Neigh) error {
+func (v *Gateway) OnNeighbor(update uint16, host netlink.Neigh) error {
 	v.mutex.Lock()
 	defer v.mutex.Unlock()
 
@@ -153,7 +169,7 @@ func (v *Vrr) OnNeighbor(update uint16, host netlink.Neigh) error {
 		return nil
 	}
 
-	log.Printf("Vrr.OnNeighbor: Type=%d, Host=%+v", update, host)
+	log.Printf("Gateway.OnNeighbor: Type=%d, Host=%+v", update, host)
 
 	attr := v.findLinkAttr(host.LinkIndex)
 	if attr == nil || !strings.HasPrefix(attr.Name, "vlan") {
@@ -169,7 +185,7 @@ func (v *Vrr) OnNeighbor(update uint16, host netlink.Neigh) error {
 			return nil
 		}
 
-		v.compose.AddHost(IpAddr(ipdst), HwAddr(ethdst), port)
+		v.compose.AddHost(IPAddr(ipdst), HwAddr(ethdst), port)
 		v.forward.Add(schema.IPForward{
 			Prefix:    ipdst,
 			NextHop:   ipdst,
@@ -177,14 +193,24 @@ func (v *Vrr) OnNeighbor(update uint16, host netlink.Neigh) error {
 			Interface: port,
 		})
 	case UpdateNeighDel:
-		v.compose.DelHost(IpAddr(ipdst), port)
+		v.compose.DelHost(IPAddr(ipdst), port)
 		v.forward.Remove(ipdst)
 	}
 
 	return nil
 }
 
-func (v *Vrr) findLinkAttr(index int) *netlink.LinkAttrs {
+func (v *Gateway) findLinkAttr(index int) *netlink.LinkAttrs {
+	if v.ns != netns.None() {
+		if h, err := netlink.NewHandleAt(v.ns); err != nil {
+			return nil
+		} else {
+			if link, err := h.LinkByIndex(index); err == nil {
+				v.linkAttrs[index] = link.Attrs()
+			}
+			return v.linkAttrs[index]
+		}
+	}
 	if link, err := netlink.LinkByIndex(index); err == nil {
 		v.linkAttrs[index] = link.Attrs()
 	}
@@ -192,7 +218,7 @@ func (v *Vrr) findLinkAttr(index int) *netlink.LinkAttrs {
 	return v.linkAttrs[index]
 }
 
-func (v *Vrr) OnRoute(update uint16, rule netlink.Route) error {
+func (v *Gateway) OnRoute(update uint16, rule netlink.Route) error {
 	v.mutex.Lock()
 	defer v.mutex.Unlock()
 
@@ -200,7 +226,7 @@ func (v *Vrr) OnRoute(update uint16, rule netlink.Route) error {
 		return nil
 	}
 
-	log.Printf("Vrr.OnRoute: Type=%d, Rule=%+v", update, rule)
+	log.Printf("Gateway.OnRoute: Type=%d, Rule=%+v", update, rule)
 
 	attr := v.findLinkAttr(rule.LinkIndex)
 	if attr == nil || !strings.HasPrefix(attr.Name, "vlan") {
@@ -212,24 +238,21 @@ func (v *Vrr) OnRoute(update uint16, rule netlink.Route) error {
 	ipgw := rule.Gw.String()
 	switch update {
 	case UpdateRouteAdd, UpdateRouteNew:
-		if ipgw == "" || ipgw == "<nil>" {
-			return nil
-		}
-		v.compose.AddRoute(IpPrefix(ipdst), IpAddr(ipgw), port)
+		v.compose.AddRoute(IPPrefix(ipdst), IPAddr(ipgw), port)
 		v.forward.Add(schema.IPForward{
 			Prefix:    ipdst,
 			NextHop:   ipgw,
 			Interface: port,
 		})
 	case UpdateRouteDel:
-		v.compose.DelRoute(IpPrefix(ipdst), port)
+		v.compose.DelRoute(IPPrefix(ipdst), port)
 		v.forward.Remove(ipdst)
 	}
 
 	return nil
 }
 
-func (v *Vrr) ListForward() ([]schema.IPForward, error) {
+func (v *Gateway) ListForward() ([]schema.IPForward, error) {
 	v.mutex.RLock()
 	defer v.mutex.RUnlock()
 
@@ -240,28 +263,28 @@ func (v *Vrr) ListForward() ([]schema.IPForward, error) {
 	return items, nil
 }
 
-func (v *Vrr) AddSNAT(data schema.SNAT) error {
+func (v *Gateway) AddSNAT(data schema.SNAT) error {
 	v.mutex.Lock()
 	defer v.mutex.Unlock()
 
 	return v.compose.AddSNAT(data.Source, data.SourceTo)
 }
 
-func (v *Vrr) DelSNAT(data schema.SNAT) error {
+func (v *Gateway) DelSNAT(data schema.SNAT) error {
 	v.mutex.Lock()
 	defer v.mutex.Unlock()
 
 	return v.compose.DelSNAT(data.Source)
 }
 
-func (v *Vrr) AddDNAT(data schema.DNAT) error {
+func (v *Gateway) AddDNAT(data schema.DNAT) error {
 	v.mutex.Lock()
 	defer v.mutex.Unlock()
 
 	return v.compose.AddDNAT(data.Dest, data.DestTo)
 }
 
-func (v *Vrr) DelDNAT(data schema.DNAT) error {
+func (v *Gateway) DelDNAT(data schema.DNAT) error {
 	v.mutex.Lock()
 	defer v.mutex.Unlock()
 
