@@ -38,6 +38,18 @@ type Composer struct {
 
 func (a *Composer) Start() {
 	log.Printf("Composer.Start")
+	if options, err := a.vsctl.Get.Bridge(a.brname); err == nil {
+		for key, value := range options.OtherConfig {
+			if source, found := strings.CutPrefix(key, "snat-"); found {
+				a.addSNAT(source, value)
+			} else if dest, found := strings.CutPrefix(key, "dnat-"); found {
+				dest = strings.Replace(dest, "-", ":", 2)
+				a.addDNAT(dest, value)
+			}
+		}
+	} else {
+		log.Printf("Composer.Start: bridge options: %+v", err)
+	}
 }
 
 func (a *Composer) listPorts() ([]ovs.PortData, error) {
@@ -180,9 +192,7 @@ func (a *Composer) addBr(name string) error {
 }
 
 func (a *Composer) Init() {
-	a.client = ovs.New(
-		ovs.Sudo(),
-	)
+	a.client = ovs.New()
 
 	a.vsctl = a.client.VSwitch
 	a.ofctl = a.client.OpenFlow
@@ -421,9 +431,8 @@ func (a *Composer) DelRoute(ipdst IPPrefix, vlanif string) error {
 	})
 }
 
-func (a *Composer) AddSNAT(source, sourceTo string) error {
-	log.Printf("Compose.AddSNAT: %s -> %s", source, sourceTo)
-
+func (a *Composer) addSNAT(source, sourceTo string) error {
+	log.Printf("Compose.addSNAT: %s -> %s", source, sourceTo)
 	return a.addFlow(&ovs.Flow{
 		Priority: 50,
 		Cookie:   CookieIn,
@@ -442,10 +451,20 @@ func (a *Composer) AddSNAT(source, sourceTo string) error {
 	})
 }
 
+func (a *Composer) AddSNAT(source, sourceTo string) error {
+	err := a.addSNAT(source, sourceTo)
+	if err == nil {
+		a.vsctl.Set.Bridge(a.brname, ovs.BridgeOptions{
+			OtherConfig: map[string]string{toKey("snat", source): sourceTo},
+		})
+	}
+	return err
+}
+
 func (a *Composer) DelSNAT(source string) error {
 	log.Printf("Compose.DelSNAT: %s", source)
 
-	return a.delFlows(&ovs.MatchFlow{
+	err := a.delFlows(&ovs.MatchFlow{
 		Cookie:   CookieIn,
 		Table:    TableNat,
 		Protocol: ovs.ProtocolIPv4,
@@ -457,6 +476,10 @@ func (a *Composer) DelSNAT(source string) error {
 			ovs.NetworkSource(source),
 		},
 	})
+	if err == nil {
+		a.vsctl.RemoveBridge(a.brname, "other_config", toKey("snat", source))
+	}
+	return err
 }
 
 func parseDest(data string) (string, uint16, error) {
@@ -474,13 +497,12 @@ func parseDest(data string) (string, uint16, error) {
 	return dAddr, dport, nil
 }
 
-func (a *Composer) AddDNAT(dest, destTo string) error {
+func (a *Composer) addDNAT(dest, destTo string) error {
 	daddr, dport, err := parseDest(dest)
 	if err != nil {
 		return err
 	}
-	log.Printf("Compose.AddDNAT: %s -> %s", dest, destTo)
-
+	log.Printf("Compose.addDNAT: %s -> %s", dest, destTo)
 	return a.addFlow(&ovs.Flow{
 		Priority: 160,
 		Cookie:   CookieIn,
@@ -500,6 +522,23 @@ func (a *Composer) AddDNAT(dest, destTo string) error {
 	})
 }
 
+func toKey(prefix, value string) string {
+	key := fmt.Sprintf("%s-%s", prefix, value)
+	key = strings.Replace(key, ":", "-", 2)
+	return key
+}
+
+func (a *Composer) AddDNAT(dest, destTo string) error {
+	err := a.addDNAT(dest, destTo)
+	if err == nil {
+
+		a.vsctl.Set.Bridge(a.brname, ovs.BridgeOptions{
+			OtherConfig: map[string]string{toKey("dnat", dest): destTo},
+		})
+	}
+	return err
+}
+
 func (a *Composer) DelDNAT(dest string) error {
 	daddr, dport, err := parseDest(dest)
 	if err != nil {
@@ -507,7 +546,7 @@ func (a *Composer) DelDNAT(dest string) error {
 	}
 	log.Printf("Compose.DelDNAT: %s", dest)
 
-	return a.delFlows(&ovs.MatchFlow{
+	err = a.delFlows(&ovs.MatchFlow{
 		Cookie:   CookieIn,
 		Table:    TableNat,
 		Protocol: ovs.ProtocolTCPv4,
@@ -520,6 +559,10 @@ func (a *Composer) DelDNAT(dest string) error {
 			ovs.TransportDestinationPort(dport),
 		},
 	})
+	if err == nil {
+		a.vsctl.RemoveBridge(a.brname, "other_config", toKey("dnat", dest))
+	}
+	return err
 }
 
 func (a *Composer) AddLocal(addr string) error {

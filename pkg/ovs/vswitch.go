@@ -49,6 +49,15 @@ func (v *VSwitchService) AddBridge(bridge string) error {
 	return err
 }
 
+func (v *VSwitchService) RemoveBridge(bridge, column string, fields ...string) error {
+	args := []string{"remove", "bridge", bridge}
+	for _, c := range fields {
+		args = append(args, column, c)
+	}
+	_, err := v.exec(args...)
+	return err
+}
+
 // AddPort attaches a port to a bridge on Open vSwitch.  The port may or may
 // not already exist.
 func (v *VSwitchService) AddPortWith(bridge string, port string, ifs InterfaceOptions) error {
@@ -176,24 +185,63 @@ type VSwitchGetService struct {
 	v *VSwitchService
 }
 
+func parseMap(s string, result map[string]string) error {
+	s = strings.TrimSpace(s)
+	if !strings.HasPrefix(s, "{") || !strings.HasSuffix(s, "}") {
+		return nil
+	}
+	s = strings.Trim(s, "{}")
+	if s == "" {
+		return nil
+	}
+	pairs := strings.Split(s, ",")
+	for _, pair := range pairs {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		kv := strings.SplitN(pair, "=", 2)
+		if len(kv) != 2 {
+			return nil
+		}
+		key := strings.Trim(kv[0], `" `)
+		val := strings.Trim(kv[1], `" `)
+		result[key] = val
+	}
+	return nil
+}
+
 // Bridge gets configuration for a bridge and returns the values through
 // a BridgeOptions struct.
 func (v *VSwitchGetService) Bridge(bridge string) (BridgeOptions, error) {
 	// We only support the protocol option at this point.
+	options := BridgeOptions{}
 	args := []string{"--format=json", "get", "bridge", bridge, "protocols"}
 	out, err := v.v.exec(args...)
 	if err != nil {
-		return BridgeOptions{}, err
+		return options, err
 	}
 
 	var protocols []string
 	if err := json.Unmarshal(out, &protocols); err != nil {
-		return BridgeOptions{}, err
+		return options, err
+	}
+	options.Protocols = protocols
+
+	// other_config
+	args = []string{"--format=json", "get", "bridge", bridge, "other_config"}
+	out, err = v.v.exec(args...)
+	if err != nil {
+		return options, err
 	}
 
-	return BridgeOptions{
-		Protocols: protocols,
-	}, nil
+	otherConfig := make(map[string]string)
+	if err := parseMap(string(out), otherConfig); err != nil {
+		return options, err
+	}
+	options.OtherConfig = otherConfig
+
+	return options, nil
 }
 
 type PortData struct {
@@ -302,7 +350,8 @@ func (v *VSwitchSetService) Bridge(bridge string, options BridgeOptions) error {
 // An BridgeOptions enables configuration of a bridge.
 type BridgeOptions struct {
 	// Protocols specifies the OpenFlow protocols the bridge should use.
-	Protocols []string
+	Protocols   []string
+	OtherConfig map[string]string
 }
 
 // slice creates a string slice containing any non-zero option values from the
@@ -312,6 +361,12 @@ func (o BridgeOptions) slice() []string {
 
 	if len(o.Protocols) > 0 {
 		s = append(s, fmt.Sprintf("protocols=%s", strings.Join(o.Protocols, ",")))
+	}
+
+	if len(o.OtherConfig) > 0 {
+		for k, v := range o.OtherConfig {
+			s = append(s, fmt.Sprintf("other_config:%s=%s", k, v))
+		}
 	}
 
 	return s
