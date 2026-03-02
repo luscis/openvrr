@@ -302,7 +302,7 @@ func (a *Composer) findVlanId(name string) int {
 	return vlanid
 }
 
-func (a *Composer) AddHost(ipdst IPAddr, ethdst HwAddr, vlanif string) error {
+func (a *Composer) AddHost(ipdst IPAddr, ethdst HWAddr, vlanif string) error {
 	// table=20 FIB
 	log.Printf("Compose.AddHost: %s -> %s on %s", ipdst, ethdst, vlanif)
 	ethsrc := a.findPortAddr(vlanif)
@@ -540,9 +540,9 @@ func (a *Composer) DelLocal(addr string) error {
 	})
 }
 
-type HwAddr string
+type HWAddr string
 
-func (m HwAddr) Hex() string {
+func (m HWAddr) Hex() string {
 	return fmt.Sprintf("0x%s", strings.Replace(string(m), ":", "", 5))
 }
 

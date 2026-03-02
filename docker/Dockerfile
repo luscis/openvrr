@@ -1,4 +1,4 @@
-FROM debian:bullseye
+FROM debian:bookworm
 
 WORKDIR /root
 
@@ -13,8 +13,10 @@ RUN apt install -y frr openvswitch-switch
 
 RUN mkdir -p /opt/openvrr
 
-COPY vrr.sh frr.sh \
-  ovsdb-server.sh ovs-vswitchd.sh \
+COPY script/vrr.sh \
+  script/frr.sh \
+  script/ovsdb-server.sh \
+  script/ovs-vswitchd.sh \
   /opt/openvrr/
 RUN chmod +x /opt/openvrr/*.sh
 

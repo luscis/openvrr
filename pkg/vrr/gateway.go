@@ -179,7 +179,7 @@ func (v *Gateway) OnNeighbor(update uint16, host netlink.Neigh) error {
 			return nil
 		}
 
-		v.compose.AddHost(IPAddr(ipdst), HwAddr(ethdst), port)
+		v.compose.AddHost(IPAddr(ipdst), HWAddr(ethdst), port)
 		v.forward.Add(schema.IPForward{
 			Prefix:    ipdst,
 			NextHop:   ipdst,
