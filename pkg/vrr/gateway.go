@@ -43,7 +43,8 @@ func (v *Gateway) Init() {
 	v.forward = make(map[string]schema.IPForward)
 	v.linkAttrs = make(map[int]*netlink.LinkAttrs)
 
-	if ns, err := netns.GetFromName(vrname); err != nil {
+	ns, err := netns.GetFromName(vrname)
+	if err != nil {
 		log.Fatalf("Gateway.Init: Get netns %v", err)
 	} else {
 		v.ns = ns
@@ -51,6 +52,7 @@ func (v *Gateway) Init() {
 
 	v.compose = &Composer{
 		brname: vrname,
+		ns:     v.ns,
 	}
 	v.compose.Init()
 

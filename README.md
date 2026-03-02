@@ -34,17 +34,17 @@ OpenVRR is a solution to improve kernel routing and performance by openvswitch.
 The PCa access to OpenVRR via vlan 10, and as a vlan 10 subnet gateway.
 
 ```
-vrrcli interface vlan add --tag 10 --interface eth1
+vrrcli vlan add --tag 10 --interface eth1
 vrrcli interface add --name vlan10
 
-ifconfig vlan10 192.168.1.1/24
+ip netns exec vrr ifconfig vlan10 192.168.1.1/24
 ```
 
 The PCb access to OpenVRR via vlan 20, and as a vlan 20 subnet gateway..
 
 ```
-vrrcli interface vlan add --tag 20 --interface eth2
+vrrcli vlan add --tag 20 --interface eth2
 vrrcli interface add --name vlan20
 
-ifconfig vlan20 192.168.2.1/24
+ip netns exec vrr ifconfig vlan20 192.168.2.1/24
 ```

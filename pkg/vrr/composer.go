@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/luscis/openvrr/pkg/ovs"
+	"github.com/vishvananda/netlink"
+	"github.com/vishvananda/netns"
 )
 
 const (
@@ -31,6 +33,7 @@ type Composer struct {
 	client *ovs.Client
 	ofctl  *ovs.OpenFlowService
 	vsctl  *ovs.VSwitchService
+	ns     netns.NsHandle
 }
 
 func (a *Composer) Start() {
@@ -40,7 +43,7 @@ func (a *Composer) Start() {
 func (a *Composer) listPorts() ([]ovs.PortData, error) {
 	ports, err := a.vsctl.ListPorts(a.brname)
 	if err != nil {
-		log.Printf("Composer.listPorts: %v\n", err)
+		log.Printf("Composer.listPorts: %v", err)
 		return nil, err
 	}
 
@@ -59,7 +62,7 @@ func (a *Composer) listPorts() ([]ovs.PortData, error) {
 func (a *Composer) hasPort(name string) bool {
 	ports, err := a.vsctl.ListPorts(a.brname)
 	if err != nil {
-		log.Printf("Composer.hasPort: %v\n", err)
+		log.Printf("Composer.hasPort: %v", err)
 		return false
 	}
 
@@ -74,14 +77,14 @@ func (a *Composer) hasPort(name string) bool {
 func (a *Composer) addVlanTag(port string, tag int) error {
 	if !a.hasPort(port) {
 		if err := a.vsctl.AddPort(a.brname, port); err != nil {
-			log.Printf("Composer.addVlanTag.add: %v\n", err)
+			log.Printf("Composer.addVlanTag.add: %v", err)
 			return err
 		}
 	}
 
 	ps := ovs.PortOptions{Tag: tag}
 	if err := a.vsctl.Set.Port(port, ps); err != nil {
-		log.Printf("Composer.addVlanTag.set: %v\n", err)
+		log.Printf("Composer.addVlanTag.set: %v", err)
 		return err
 	}
 	return nil
@@ -93,7 +96,7 @@ func (a *Composer) delVlanTag(port string) error {
 	}
 
 	if err := a.vsctl.ClearPort(port, "tag"); err != nil {
-		log.Printf("Composer.delVlanTag: %v\n", err)
+		log.Printf("Composer.delVlanTag: %v", err)
 		return err
 	}
 	return nil
@@ -102,13 +105,13 @@ func (a *Composer) delVlanTag(port string) error {
 func (a *Composer) addVlanTrunks(port, trunks string) error {
 	if !a.hasPort(port) {
 		if err := a.vsctl.AddPort(a.brname, port); err != nil {
-			log.Printf("Composer.addVlanTrunks.add: %v\n", err)
+			log.Printf("Composer.addVlanTrunks.add: %v", err)
 			return err
 		}
 	}
 	ps := ovs.PortOptions{Trunks: trunks}
 	if err := a.vsctl.Set.Port(port, ps); err != nil {
-		log.Printf("Composer.addVlanTrunks.set: %v\n", err)
+		log.Printf("Composer.addVlanTrunks.set: %v", err)
 		return err
 	}
 	return nil
@@ -120,7 +123,7 @@ func (a *Composer) delVlanTrunks(port string) error {
 	}
 
 	if err := a.vsctl.ClearPort(port, "trunks"); err != nil {
-		log.Printf("Composer.delVlanTrunks: %v\n", err)
+		log.Printf("Composer.delVlanTrunks: %v", err)
 		return err
 	}
 	return nil
@@ -133,19 +136,28 @@ func (a *Composer) addVlanPort(vlan string) error {
 		Type:          ovs.InterfaceTypeInternal,
 	}
 	if err := a.vsctl.AddPortWith(a.brname, vlan, is); err != nil {
-		log.Printf("Composer.addVlanPort.add: %v\n", err)
+		log.Printf("Composer.addVlanPort: add: %v", err)
 		return err
 	}
 	if err := a.vsctl.Set.Interface(vlan, is); err != nil {
-		log.Printf("Composer.addVlanPort.set.interface: %v\n", err)
+		log.Printf("Composer.addVlanPort: set interface: %v", err)
 		return err
 	}
 	tag := a.findVlanId(vlan)
 	if tag > 0 {
 		ps := ovs.PortOptions{Tag: tag}
 		if err := a.vsctl.Set.Port(vlan, ps); err != nil {
-			log.Printf("Composer.addVlanPort.set.port: %v\n", err)
+			log.Printf("Composer.addVlanPort: set port: %v", err)
 			return err
+		}
+		link, err := netlink.LinkByName(vlan)
+		if err != nil {
+			log.Printf("Composer.addVlanPort: find port: %v", err)
+			return err
+		}
+		err = netlink.LinkSetNsFd(link, int(a.ns))
+		if err != nil {
+			log.Printf("Composer.addVlanPort: set netns failed: %v", err)
 		}
 	}
 	return nil
@@ -153,7 +165,7 @@ func (a *Composer) addVlanPort(vlan string) error {
 
 func (a *Composer) delPort(vlan string) error {
 	if err := a.vsctl.DeletePort(a.brname, vlan); err != nil {
-		log.Printf("Composer.delPort: %v\n", err)
+		log.Printf("Composer.delPort: %v", err)
 		return err
 	}
 	return nil
@@ -161,7 +173,7 @@ func (a *Composer) delPort(vlan string) error {
 
 func (a *Composer) addBr(name string) error {
 	if err := a.vsctl.AddBridge(name); err != nil {
-		log.Fatalf("Composer.addBr: %v\n", err)
+		log.Fatalf("Composer.addBr: %v", err)
 		return err
 	}
 	return nil
@@ -348,7 +360,7 @@ func (a *Composer) DelHost(ipdst IPAddr, vlanif string) error {
 func (a *Composer) addFlow(flow *ovs.Flow) error {
 	err := a.ofctl.AddFlow(a.brname, flow)
 	if err != nil {
-		log.Printf("Composer.addFlow: %v\n", err)
+		log.Printf("Composer.addFlow: %v", err)
 	}
 	return err
 }
@@ -356,7 +368,7 @@ func (a *Composer) addFlow(flow *ovs.Flow) error {
 func (a *Composer) delFlows(match *ovs.MatchFlow) error {
 	err := a.ofctl.DelFlows(a.brname, match)
 	if err != nil {
-		log.Printf("Composer.delFlow: %v\n", err)
+		log.Printf("Composer.delFlow: %v", err)
 	}
 	return err
 }
