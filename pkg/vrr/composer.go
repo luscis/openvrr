@@ -19,10 +19,7 @@ const (
 )
 
 const (
-	CookieIn  = 0x2021
-	CookieRib = 0x2022
-	CookieFib = 0x2023
-	CookieFdb = 0x2024
+	CookieIn = 0x2021
 )
 
 const (
@@ -253,7 +250,7 @@ func (a *Composer) Init() {
 	// table=19 RIB
 	a.addFlow(&ovs.Flow{
 		Priority: 0,
-		Cookie:   CookieRib,
+		Cookie:   CookieIn,
 		Table:    TableRib,
 		Protocol: ovs.ProtocolIPv4,
 		Actions: []ovs.Action{
@@ -265,7 +262,7 @@ func (a *Composer) Init() {
 	// table=20 FIB
 	a.addFlow(&ovs.Flow{
 		Priority: 0,
-		Cookie:   CookieFib,
+		Cookie:   CookieIn,
 		Table:    TableFib,
 		Actions: []ovs.Action{
 			ovs.Load("0x0", "reg0"),
@@ -276,7 +273,7 @@ func (a *Composer) Init() {
 	a.addFlow(&ovs.Flow{
 		Priority: 0,
 		Table:    TableFdb,
-		Cookie:   CookieFdb,
+		Cookie:   CookieIn,
 		Actions: []ovs.Action{
 			ovs.Normal(),
 		},
@@ -314,7 +311,7 @@ func (a *Composer) AddHost(ipdst IPAddr, ethdst HwAddr, vlanif string) error {
 
 	return a.addFlow(&ovs.Flow{
 		Priority: 100,
-		Cookie:   CookieFib,
+		Cookie:   CookieIn,
 		Table:    TableFib,
 		Protocol: ovs.ProtocolIPv4,
 		Matches: []ovs.Match{
@@ -338,7 +335,7 @@ func (a *Composer) DelHost(ipdst IPAddr, vlanif string) error {
 	ethsrc := a.findPortAddr(vlanif)
 
 	return a.delFlows(&ovs.MatchFlow{
-		Cookie:   CookieFib,
+		Cookie:   CookieIn,
 		Table:    TableFib,
 		Protocol: ovs.ProtocolIPv4,
 		Matches: []ovs.Match{
@@ -384,7 +381,7 @@ func (a *Composer) AddRoute(ipdst IPPrefix, ipgw IPAddr, vlanif string) error {
 	}
 	a.addFlow(&ovs.Flow{
 		Priority: 100 + ipdst.Prefixlen(),
-		Cookie:   CookieRib,
+		Cookie:   CookieIn,
 		Table:    TableRib,
 		Protocol: ovs.ProtocolIPv4,
 		Matches: []ovs.Match{
@@ -402,7 +399,7 @@ func (a *Composer) DelRoute(ipdst IPPrefix, vlanif string) error {
 	ethsrc := a.findPortAddr(vlanif)
 
 	return a.delFlows(&ovs.MatchFlow{
-		Cookie:   CookieRib,
+		Cookie:   CookieIn,
 		Table:    TableRib,
 		Protocol: ovs.ProtocolIPv4,
 		Matches: []ovs.Match{
@@ -515,14 +512,14 @@ func (a *Composer) DelDNAT(dest string) error {
 
 func (a *Composer) AddLocal(addr string) error {
 	log.Printf("Compose.AddLocal: %s", addr)
-
+	host := strings.SplitN(addr, "/", 2)[0]
 	return a.addFlow(&ovs.Flow{
 		Priority: 150,
 		Cookie:   CookieIn,
 		Table:    TableNat,
 		Protocol: ovs.ProtocolIPv4,
 		Matches: []ovs.Match{
-			ovs.NetworkDestination(addr),
+			ovs.NetworkDestination(host),
 		},
 		Actions: []ovs.Action{
 			ovs.Resubmit(0, TableRib),
@@ -532,13 +529,13 @@ func (a *Composer) AddLocal(addr string) error {
 
 func (a *Composer) DelLocal(addr string) error {
 	log.Printf("Compose.DelLocal: %s", addr)
-
+	host := strings.SplitN(addr, "/", 2)[0]
 	return a.delFlows(&ovs.MatchFlow{
 		Cookie:   CookieIn,
 		Table:    TableNat,
 		Protocol: ovs.ProtocolIPv4,
 		Matches: []ovs.Match{
-			ovs.NetworkDestination(addr),
+			ovs.NetworkDestination(host),
 		},
 	})
 }
