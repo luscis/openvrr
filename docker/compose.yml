@@ -23,6 +23,7 @@ services:
     entrypoint: ["/opt/openvrr/frr.sh"]
     volumes:
       - /opt/openvrr/etc/frr:/etc/frr
+      - /run/netns:/run/netns
   vrr:
     restart: always
     image: "luscis/openvrr:latest.amd64"
@@ -33,6 +34,7 @@ services:
       - /opt/openvrr/etc/luscis/openvrr:/etc/openvrr
       - /opt/openvrr/etc/frr:/etc/frr
       - /opt/openvrr/run/openvswitch:/run/openvswitch
+      - /run/netns:/run/netns
     depends_on:
       - ovs-vswitchd
       - frr

@@ -14,14 +14,25 @@ else
 	}
 fi
 
-set -x
+set +x
+
 [ -e "/var/run/frr" ] || {
 	 mkdir -p /var/run/frr
 	 chown frr:frr /var/run/frr
 }
 
-[ -e "/etc/frr/daemons" ] || {
-	cat > /etc/frr/daemons << EOF
+[ -e "/var/run/frr/vrr" ] || {
+	 mkdir -p /var/run/frr/vrr
+	 chown frr:frr /var/run/frr/vrr
+}
+
+[ -e "/etc/frr/vrr" ] || {
+	 mkdir -p /etc/frr/vrr
+	 chown frr:frr /etc/frr/vrr
+}
+
+[ -e "/etc/frr/vrr/daemons" ] || {
+	cat > /etc/frr/vrr/daemons << EOF
 bgpd=yes
 ospfd=yes
 ospf6d=no
@@ -42,6 +53,7 @@ vrrpd=no
 pathd=no
 
 vtysh_enable=yes
+
 zebra_options="  -A 127.0.0.1 -s 90000000"
 mgmtd_options="  -A 127.0.0.1"
 bgpd_options="   -A 127.0.0.1"
@@ -65,8 +77,10 @@ vrrpd_options="  -A 127.0.0.1"
 pathd_options="  -A 127.0.0.1"
 EOF
 }
-set +x
+
+ip netns exec vrr ip l || ip netns add vrr
 
 # Start daemons
 source /usr/lib/frr/frrcommon.sh
-/usr/lib/frr/watchfrr $(daemon_list)
+
+/usr/lib/frr/watchfrr -N vrr --netns=vrr $(daemon_list)
