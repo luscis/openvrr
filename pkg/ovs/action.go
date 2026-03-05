@@ -194,7 +194,27 @@ const (
 	patResubmitPort                = "resubmit:%s"
 	patResubmitPortTable           = "resubmit(%s,%s)"
 	patLearn                       = "learn(%s)"
+	patClearCt                     = "ct_clear"
 )
+
+func ClearCt() Action {
+	return &clearCtAction{}
+}
+
+// A clearCtAction is an Action which is used by Clear ConneectionTracking.
+type clearCtAction struct {
+}
+
+// MarshalText implements Action.
+func (a *clearCtAction) MarshalText() ([]byte, error) {
+
+	return bprintf(patClearCt), nil
+}
+
+// GoString implements Action.
+func (a *clearCtAction) GoString() string {
+	return "ovs.ClearCt()"
+}
 
 // ConnectionTracking sends a packet through the host's connection tracker.
 func ConnectionTracking(args string) Action {

@@ -502,8 +502,13 @@ func (a *Composer) addDNAT(dest, destTo string) error {
 	if err != nil {
 		return err
 	}
+	toaddr, toport, err := parseDest(destTo)
+	if err != nil {
+		return err
+	}
+
 	log.Printf("Compose.addDNAT: %s -> %s", dest, destTo)
-	return a.addFlow(&ovs.Flow{
+	if err := a.addFlow(&ovs.Flow{
 		Priority: 160,
 		Cookie:   CookieIn,
 		Table:    TableNat,
@@ -519,7 +524,74 @@ func (a *Composer) addDNAT(dest, destTo string) error {
 		Actions: []ovs.Action{
 			ovs.ConnectionTracking(fmt.Sprintf("commit,nat(dst=%s),zone=10,table=%d", destTo, TableRib)),
 		},
-	})
+	}); err != nil {
+		return err
+	}
+	if err := a.addFlow(&ovs.Flow{
+		Priority: 162,
+		Cookie:   CookieIn,
+		Table:    TableNat,
+		Protocol: ovs.ProtocolTCPv4,
+		Matches: []ovs.Match{
+			ovs.ConnectionTrackingState(
+				ovs.SetState(ovs.CTStateTracked),
+				ovs.SetState(ovs.CTStateNew),
+			),
+			ovs.NetworkDestination(daddr),
+			ovs.TransportDestinationPort(dport),
+			ovs.NetworkSource(toaddr),
+		},
+		Actions: []ovs.Action{
+			ovs.ConnectionTracking(fmt.Sprintf("commit,nat(dst=%s),zone=10", destTo)),
+			ovs.Resubmit(0, TableNat),
+		},
+	}); err != nil {
+		return err
+	}
+
+	if err := a.addFlow(&ovs.Flow{
+		Priority: 202,
+		Cookie:   CookieIn,
+		Table:    TableNat,
+		Protocol: ovs.ProtocolTCPv4,
+		Matches: []ovs.Match{
+			ovs.ConnectionTrackingState(
+				ovs.SetState(ovs.CTStateTracked),
+				ovs.SetState(ovs.CTStateReply),
+			),
+			ovs.NetworkDestination(toaddr),
+			ovs.TransportSourcePort(toport),
+			ovs.NetworkSource(toaddr),
+		},
+		Actions: []ovs.Action{
+			ovs.ClearCt(),
+			ovs.Resubmit(0, TableCt),
+		},
+	}); err != nil {
+		return err
+	}
+	if err := a.addFlow(&ovs.Flow{
+		Priority: 202,
+		Cookie:   CookieIn,
+		Table:    TableNat,
+		Protocol: ovs.ProtocolTCPv4,
+		Matches: []ovs.Match{
+			ovs.ConnectionTrackingState(
+				ovs.SetState(ovs.CTStateTracked),
+				ovs.SetState(ovs.CTStateEstablished),
+			),
+			ovs.NetworkDestination(toaddr),
+			ovs.TransportDestinationPort(toport),
+			ovs.NetworkSource(toaddr),
+		},
+		Actions: []ovs.Action{
+			ovs.ClearCt(),
+			ovs.Resubmit(0, TableCt),
+		},
+	}); err != nil {
+		return err
+	}
+	return nil
 }
 
 func toKey(prefix, value string) string {
