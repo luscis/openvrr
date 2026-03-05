@@ -100,8 +100,9 @@ func (u DNAT) Add(c *cli.Context) error {
 	url := u.Url(c.String("url"))
 
 	data := &schema.DNAT{
-		Dest:   c.String("dest"),
-		DestTo: c.String("dest-to"),
+		Dest:     c.String("dest"),
+		DestTo:   c.String("dest-to"),
+		Protocol: c.String("protocol"),
 	}
 
 	clt := u.NewHttp(c.String("token"))
@@ -116,7 +117,8 @@ func (u DNAT) Remove(c *cli.Context) error {
 	url := u.Url(c.String("url"))
 
 	data := &schema.DNAT{
-		Dest: c.String("dest"),
+		Dest:     c.String("dest"),
+		Protocol: c.String("protocol"),
 	}
 
 	clt := u.NewHttp(c.String("token"))
@@ -149,6 +151,7 @@ func (u DNAT) Commands(app *App) {
 				Name:  "add",
 				Usage: "Add a dnat",
 				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "protocol", Value: "tcp"},
 					&cli.StringFlag{Name: "dest", Required: true},
 					&cli.StringFlag{Name: "dest-to", Required: true},
 				},
@@ -158,6 +161,7 @@ func (u DNAT) Commands(app *App) {
 				Name:  "remove",
 				Usage: "Remove a dnat",
 				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "protocol", Value: "tcp"},
 					&cli.StringFlag{Name: "dest", Required: true},
 				},
 				Action: u.Remove,

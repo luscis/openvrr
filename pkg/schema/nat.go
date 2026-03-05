@@ -6,6 +6,7 @@ type SNAT struct {
 }
 
 type DNAT struct {
-	Dest   string `json:"dest" yaml:"dest"`
-	DestTo string `json:"dest_to" yaml:"dest_to"`
+	Protocol string `json:"protocol" yaml:"protocol"`
+	Dest     string `json:"dest" yaml:"dest"`
+	DestTo   string `json:"dest_to" yaml:"dest_to"`
 }

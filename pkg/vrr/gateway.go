@@ -277,14 +277,14 @@ func (v *Gateway) AddDNAT(data schema.DNAT) error {
 	v.mutex.Lock()
 	defer v.mutex.Unlock()
 
-	return v.compose.AddDNAT(data.Dest, data.DestTo)
+	return v.compose.AddDNAT(data.Protocol, data.Dest, data.DestTo)
 }
 
 func (v *Gateway) DelDNAT(data schema.DNAT) error {
 	v.mutex.Lock()
 	defer v.mutex.Unlock()
 
-	return v.compose.DelDNAT(data.Dest)
+	return v.compose.DelDNAT(data.Protocol, data.Dest)
 }
 
 func (v *Gateway) OnAddress(data netlink.AddrUpdate) error {
