@@ -44,11 +44,13 @@ type Composer struct {
 	ofctl  *ovs.OpenFlowService
 	vsctl  *ovs.VSwitchService
 	ns     netns.NsHandle
-	dnat   map[string]string
+	others map[string]string
 }
 
 func (a *Composer) Init() {
-	a.dnat = make(map[string]string)
+	a.others = make(map[string]string)
+
+	// ovs client.
 	a.client = ovs.New()
 	a.vsctl = a.client.VSwitch
 	a.ofctl = a.client.OpenFlow
@@ -169,6 +171,7 @@ func (a *Composer) Start() {
 		if short, found := strings.CutPrefix(key, "snat-"); found {
 			source := SplitSNAT(short)
 			a.addSNAT(source, value)
+			a.others[key] = value
 		} else if short, found := strings.CutPrefix(key, "dnat-"); found {
 			protocol, dest := SplitDNAT(short)
 			daddr, dport, err := ParseBind(protocol, dest)
@@ -180,7 +183,7 @@ func (a *Composer) Start() {
 				continue
 			}
 			a.addDNAT(protocol, daddr, dport, toaddr, toport)
-			a.dnat[key] = value
+			a.others[key] = value
 		}
 	}
 
@@ -652,7 +655,7 @@ func (a *Composer) AddDNAT(protocol, dest, destTo string) error {
 		a.vsctl.Set.Bridge(a.brname, ovs.BridgeOptions{
 			OtherConfig: map[string]string{key: destTo},
 		})
-		a.dnat[key] = destTo
+		a.others[key] = destTo
 	}
 	return err
 }
@@ -753,18 +756,38 @@ func (a *Composer) DelDNAT(protocol, dest string) error {
 	if protocol == "icmp" {
 		key = ToKey("dnat", protocol, daddr)
 	}
-	if destTo, ok := a.dnat[key]; ok {
+	if destTo, ok := a.others[key]; ok {
 		toaddr, toport, err := ParseBind(protocol, destTo)
 		if err != nil {
 			return err
 		}
 		if err = a.delDNAT(protocol, daddr, dport, toaddr, toport); err == nil {
 			a.vsctl.RemoveBridge(a.brname, "other_config", key)
-			delete(a.dnat, key)
+			delete(a.others, key)
 		}
 		return err
 	}
 	return nil
+}
+
+func (a *Composer) ListSNAT() map[string]string {
+	results := map[string]string{}
+	for key, value := range a.others {
+		if short, found := strings.CutPrefix(key, "snat-"); found {
+			results[short] = value
+		}
+	}
+	return results
+}
+
+func (a *Composer) ListDNAT() map[string]string {
+	results := map[string]string{}
+	for key, value := range a.others {
+		if short, found := strings.CutPrefix(key, "dnat-"); found {
+			results[short] = value
+		}
+	}
+	return results
 }
 
 func (a *Composer) AddLocal(addr string) error {

@@ -11,6 +11,8 @@ type Caller interface {
 	ListForward() ([]schema.IPForward, error)
 	AddSNAT(data schema.SNAT) error
 	DelSNAT(data schema.SNAT) error
+	ListSNAT() ([]schema.SNAT, error)
 	AddDNAT(data schema.DNAT) error
 	DelDNAT(data schema.DNAT) error
+	ListDNAT() ([]schema.DNAT, error)
 }

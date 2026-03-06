@@ -17,10 +17,6 @@ func (l SNAT) Router(r *mux.Router) {
 	r.HandleFunc("/api/snat", l.Remove).Methods("DELETE")
 }
 
-func (l SNAT) List(w http.ResponseWriter, r *http.Request) {
-	ResponseJson(w, nil)
-}
-
 func (l SNAT) Add(w http.ResponseWriter, r *http.Request) {
 	data := schema.SNAT{}
 	if err := GetData(r, &data); err != nil {
@@ -49,6 +45,15 @@ func (l SNAT) Remove(w http.ResponseWriter, r *http.Request) {
 	ResponseJson(w, "success")
 }
 
+func (l SNAT) List(w http.ResponseWriter, r *http.Request) {
+	if items, err := l.call.ListSNAT(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	} else {
+		ResponseJson(w, items)
+	}
+}
+
 type DNAT struct {
 	call Caller
 }
@@ -60,7 +65,12 @@ func (l DNAT) Router(r *mux.Router) {
 }
 
 func (l DNAT) List(w http.ResponseWriter, r *http.Request) {
-	ResponseJson(w, nil)
+	if items, err := l.call.ListDNAT(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	} else {
+		ResponseJson(w, items)
+	}
 }
 
 func (l DNAT) Add(w http.ResponseWriter, r *http.Request) {

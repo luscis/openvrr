@@ -7,7 +7,7 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-func OutJson(data interface{}) error {
+func OutJson(data any) error {
 	if out, err := json.Marshal(data); err == nil {
 		fmt.Println(string(out))
 	} else {
@@ -16,7 +16,7 @@ func OutJson(data interface{}) error {
 	return nil
 }
 
-func OutYaml(data interface{}) error {
+func OutYaml(data any) error {
 	if out, err := yaml.Marshal(data); err == nil {
 		fmt.Println(string(out))
 	} else {
@@ -25,7 +25,7 @@ func OutYaml(data interface{}) error {
 	return nil
 }
 
-func Out(data interface{}, format string) error {
+func Out(data any, format string) error {
 	switch format {
 	case "json":
 		return OutJson(data)

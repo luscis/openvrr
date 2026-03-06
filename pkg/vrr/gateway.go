@@ -25,7 +25,7 @@ func (f IPForwards) Remove(prefix string) {
 
 type Gateway struct {
 	kernel    *KernelRegister
-	compose   *Composer
+	scomo     *Composer
 	http      *Http
 	forward   IPForwards
 	linkAttrs map[int]*netlink.LinkAttrs
@@ -50,11 +50,11 @@ func (v *Gateway) Init() {
 		v.ns = ns
 	}
 
-	v.compose = &Composer{
+	v.scomo = &Composer{
 		brname: vrname,
 		ns:     v.ns,
 	}
-	v.compose.Init()
+	v.scomo.Init()
 
 	v.kernel = &KernelRegister{
 		ns:         v.ns,
@@ -74,7 +74,7 @@ func (v *Gateway) Init() {
 
 func (v *Gateway) Start() {
 	v.kernel.Start()
-	v.compose.Start()
+	v.scomo.Start()
 	v.http.Start()
 }
 
@@ -91,12 +91,12 @@ func (v *Gateway) AddVlan(data schema.Interface) error {
 	defer v.mutex.Unlock()
 
 	if data.Tag > 0 {
-		if err := v.compose.addVlanTag(data.Name, data.Tag); err != nil {
+		if err := v.scomo.addVlanTag(data.Name, data.Tag); err != nil {
 			return err
 		}
 	}
 	if data.Trunks != "" {
-		if err := v.compose.addVlanTrunks(data.Name, data.Trunks); err != nil {
+		if err := v.scomo.addVlanTrunks(data.Name, data.Trunks); err != nil {
 			return err
 		}
 	}
@@ -108,12 +108,12 @@ func (v *Gateway) DelVlan(data schema.Interface) error {
 	defer v.mutex.Unlock()
 
 	if data.Tag == 4095 {
-		if err := v.compose.delVlanTag(data.Name); err != nil {
+		if err := v.scomo.delVlanTag(data.Name); err != nil {
 			return err
 		}
 	}
 	if data.Trunks == "all" {
-		if err := v.compose.delVlanTrunks(data.Name); err != nil {
+		if err := v.scomo.delVlanTrunks(data.Name); err != nil {
 			return err
 		}
 	}
@@ -125,21 +125,21 @@ func (v *Gateway) AddInterface(data schema.Interface) error {
 	v.mutex.Lock()
 	defer v.mutex.Unlock()
 
-	return v.compose.addVlanPort(data.Name)
+	return v.scomo.addVlanPort(data.Name)
 }
 
 func (v *Gateway) DelInterface(data schema.Interface) error {
 	v.mutex.Lock()
 	defer v.mutex.Unlock()
 
-	return v.compose.delPort(data.Name)
+	return v.scomo.delPort(data.Name)
 }
 
 func (v *Gateway) ListInterface() ([]schema.Interface, error) {
 	v.mutex.RLock()
 	defer v.mutex.RUnlock()
 
-	ports, err := v.compose.listPorts()
+	ports, err := v.scomo.listPorts()
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +181,7 @@ func (v *Gateway) OnNeighbor(update uint16, host netlink.Neigh) error {
 			return nil
 		}
 
-		v.compose.AddHost(IPAddr(ipdst), HWAddr(ethdst), port)
+		v.scomo.AddHost(IPAddr(ipdst), HWAddr(ethdst), port)
 		v.forward.Add(schema.IPForward{
 			Prefix:    ipdst,
 			NextHop:   ipdst,
@@ -189,7 +189,7 @@ func (v *Gateway) OnNeighbor(update uint16, host netlink.Neigh) error {
 			Interface: port,
 		})
 	case UpdateNeighDel:
-		v.compose.DelHost(IPAddr(ipdst), port)
+		v.scomo.DelHost(IPAddr(ipdst), port)
 		v.forward.Remove(ipdst)
 	}
 
@@ -234,14 +234,14 @@ func (v *Gateway) OnRoute(update uint16, rule netlink.Route) error {
 	ipgw := rule.Gw.String()
 	switch update {
 	case UpdateRouteAdd, UpdateRouteNew:
-		v.compose.AddRoute(IPPrefix(ipdst), IPAddr(ipgw), port)
+		v.scomo.AddRoute(IPPrefix(ipdst), IPAddr(ipgw), port)
 		v.forward.Add(schema.IPForward{
 			Prefix:    ipdst,
 			NextHop:   ipgw,
 			Interface: port,
 		})
 	case UpdateRouteDel:
-		v.compose.DelRoute(IPPrefix(ipdst), port)
+		v.scomo.DelRoute(IPPrefix(ipdst), port)
 		v.forward.Remove(ipdst)
 	}
 
@@ -263,28 +263,58 @@ func (v *Gateway) AddSNAT(data schema.SNAT) error {
 	v.mutex.Lock()
 	defer v.mutex.Unlock()
 
-	return v.compose.AddSNAT(data.Source, data.SourceTo)
+	return v.scomo.AddSNAT(data.Source, data.SourceTo)
 }
 
 func (v *Gateway) DelSNAT(data schema.SNAT) error {
 	v.mutex.Lock()
 	defer v.mutex.Unlock()
 
-	return v.compose.DelSNAT(data.Source)
+	return v.scomo.DelSNAT(data.Source)
+}
+
+func (v *Gateway) ListSNAT() ([]schema.SNAT, error) {
+	v.mutex.RLock()
+	defer v.mutex.RUnlock()
+
+	var results []schema.SNAT
+	for key, value := range v.scomo.ListSNAT() {
+		results = append(results, schema.SNAT{
+			Source:   SplitSNAT(key),
+			SourceTo: value,
+		})
+	}
+	return results, nil
 }
 
 func (v *Gateway) AddDNAT(data schema.DNAT) error {
 	v.mutex.Lock()
 	defer v.mutex.Unlock()
 
-	return v.compose.AddDNAT(data.Protocol, data.Dest, data.DestTo)
+	return v.scomo.AddDNAT(data.Protocol, data.Dest, data.DestTo)
 }
 
 func (v *Gateway) DelDNAT(data schema.DNAT) error {
 	v.mutex.Lock()
 	defer v.mutex.Unlock()
 
-	return v.compose.DelDNAT(data.Protocol, data.Dest)
+	return v.scomo.DelDNAT(data.Protocol, data.Dest)
+}
+
+func (v *Gateway) ListDNAT() ([]schema.DNAT, error) {
+	v.mutex.RLock()
+	defer v.mutex.RUnlock()
+
+	var results []schema.DNAT
+	for key, value := range v.scomo.ListDNAT() {
+		protocol, dest := SplitDNAT(key)
+		results = append(results, schema.DNAT{
+			Dest:     dest,
+			DestTo:   value,
+			Protocol: protocol,
+		})
+	}
+	return results, nil
 }
 
 func (v *Gateway) OnAddress(data netlink.AddrUpdate) error {
@@ -300,9 +330,9 @@ func (v *Gateway) OnAddress(data netlink.AddrUpdate) error {
 
 	switch data.NewAddr {
 	case true:
-		v.compose.AddLocal(data.LinkAddress.String())
+		v.scomo.AddLocal(data.LinkAddress.String())
 	case false:
-		v.compose.DelLocal(data.LinkAddress.String())
+		v.scomo.DelLocal(data.LinkAddress.String())
 	}
 
 	return nil
