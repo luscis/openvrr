@@ -28,30 +28,149 @@ const (
 	DefaultVlanMac = "00:00:00:00:20:15"
 )
 
+func SplitDNAT(key string) (string, string) {
+	values := strings.SplitN(key, "-", 2)
+	protocol, dest := values[0], values[1]
+	return protocol, strings.Replace(dest, "-", ":", 2)
+}
+
 type Composer struct {
 	brname string
 	client *ovs.Client
 	ofctl  *ovs.OpenFlowService
 	vsctl  *ovs.VSwitchService
 	ns     netns.NsHandle
+	dnat   map[string]string
+}
+
+func (a *Composer) Init() {
+	a.dnat = make(map[string]string)
+	a.client = ovs.New()
+	a.vsctl = a.client.VSwitch
+	a.ofctl = a.client.OpenFlow
+
+	a.addBr(a.brname)
+	a.delFlows(nil)
+
+	// table=0 IN
+	a.addFlow(&ovs.Flow{
+		Priority: 100,
+		Cookie:   CookieIn,
+		Protocol: ovs.ProtocolIPv4,
+		Table:    TableIn,
+		Actions: []ovs.Action{
+			ovs.Resubmit(0, TableCt),
+		},
+	})
+	// table=0 IN
+	a.addFlow(&ovs.Flow{
+		Priority: 0,
+		Cookie:   CookieIn,
+		Table:    TableIn,
+		Actions: []ovs.Action{
+			ovs.Normal(),
+		},
+	})
+	// table=10 CT
+	a.addFlow(&ovs.Flow{
+		Priority: 100,
+		Cookie:   CookieIn,
+		Table:    TableCt,
+		Protocol: ovs.ProtocolIPv4,
+		Actions: []ovs.Action{
+			ovs.ConnectionTracking(fmt.Sprintf("nat,zone=10,table=%d", TableNat)),
+		},
+	})
+	// table=12 NAT
+	a.addFlow(&ovs.Flow{
+		Priority: 200,
+		Cookie:   CookieIn,
+		Table:    TableNat,
+		Protocol: ovs.ProtocolIPv4,
+		Matches: []ovs.Match{
+			ovs.ConnectionTrackingState(
+				ovs.SetState(ovs.CTStateTracked),
+				ovs.SetState(ovs.CTStateReply),
+			),
+		},
+		Actions: []ovs.Action{
+			ovs.Resubmit(0, TableRib),
+		},
+	})
+	a.addFlow(&ovs.Flow{
+		Priority: 200,
+		Cookie:   CookieIn,
+		Table:    TableNat,
+		Protocol: ovs.ProtocolIPv4,
+		Matches: []ovs.Match{
+			ovs.ConnectionTrackingState(
+				ovs.SetState(ovs.CTStateTracked),
+				ovs.SetState(ovs.CTStateEstablished),
+			),
+		},
+		Actions: []ovs.Action{
+			ovs.Resubmit(0, TableRib),
+		},
+	})
+	a.addFlow(&ovs.Flow{
+		Priority: 10,
+		Cookie:   CookieIn,
+		Table:    TableNat,
+		Protocol: ovs.ProtocolIPv4,
+		Actions: []ovs.Action{
+			ovs.Resubmit(0, TableRib),
+		},
+	})
+	// table=19 RIB
+	a.addFlow(&ovs.Flow{
+		Priority: 0,
+		Cookie:   CookieIn,
+		Table:    TableRib,
+		Protocol: ovs.ProtocolIPv4,
+		Actions: []ovs.Action{
+			ovs.Push("OXM_OF_IPV4_DST"),
+			ovs.Pop("reg0"),
+			ovs.Resubmit(0, TableFib),
+		},
+	})
+	// table=20 FIB
+	a.addFlow(&ovs.Flow{
+		Priority: 0,
+		Cookie:   CookieIn,
+		Table:    TableFib,
+		Actions: []ovs.Action{
+			ovs.Load("0x0", "reg0"),
+			ovs.Resubmit(0, TableFdb),
+		},
+	})
+	// table=30 FDB
+	a.addFlow(&ovs.Flow{
+		Priority: 0,
+		Table:    TableFdb,
+		Cookie:   CookieIn,
+		Actions: []ovs.Action{
+			ovs.Normal(),
+		},
+	})
 }
 
 func (a *Composer) Start() {
 	log.Printf("Composer.Start")
-	if options, err := a.vsctl.Get.Bridge(a.brname); err == nil {
-		for key, value := range options.OtherConfig {
-			if source, found := strings.CutPrefix(key, "snat-"); found {
-				a.addSNAT(source, value)
-			} else if keys, found := strings.CutPrefix(key, "dnat-"); found {
-				values := strings.SplitN(keys, "-", 2)
-				protocol, dest := values[0], values[1]
-				dest = strings.Replace(dest, "-", ":", 2)
-				a.addDNAT(protocol, dest, value)
-			}
-		}
-	} else {
+	options, err := a.vsctl.Get.Bridge(a.brname)
+	if err != nil {
 		log.Printf("Composer.Start: bridge options: %+v", err)
+		return
 	}
+	for key, value := range options.OtherConfig {
+		if short, found := strings.CutPrefix(key, "snat-"); found {
+			a.addSNAT(short, value)
+		} else if short, found := strings.CutPrefix(key, "dnat-"); found {
+			protocol, dest := SplitDNAT(short)
+			a.addDNAT(protocol, dest, value)
+			a.dnat[key] = value
+		}
+	}
+
 }
 
 func (a *Composer) listPorts() ([]ovs.PortData, error) {
@@ -191,117 +310,6 @@ func (a *Composer) addBr(name string) error {
 		return err
 	}
 	return nil
-}
-
-func (a *Composer) Init() {
-	a.client = ovs.New()
-
-	a.vsctl = a.client.VSwitch
-	a.ofctl = a.client.OpenFlow
-
-	a.addBr(a.brname)
-	a.delFlows(nil)
-
-	// table=0 IN
-	a.addFlow(&ovs.Flow{
-		Priority: 100,
-		Cookie:   CookieIn,
-		Protocol: ovs.ProtocolIPv4,
-		Table:    TableIn,
-		Actions: []ovs.Action{
-			ovs.Resubmit(0, TableCt),
-		},
-	})
-	// table=0 IN
-	a.addFlow(&ovs.Flow{
-		Priority: 0,
-		Cookie:   CookieIn,
-		Table:    TableIn,
-		Actions: []ovs.Action{
-			ovs.Normal(),
-		},
-	})
-	// table=10 CT
-	a.addFlow(&ovs.Flow{
-		Priority: 100,
-		Cookie:   CookieIn,
-		Table:    TableCt,
-		Protocol: ovs.ProtocolIPv4,
-		Actions: []ovs.Action{
-			ovs.ConnectionTracking(fmt.Sprintf("nat,zone=10,table=%d", TableNat)),
-		},
-	})
-	// table=12 NAT
-	a.addFlow(&ovs.Flow{
-		Priority: 200,
-		Cookie:   CookieIn,
-		Table:    TableNat,
-		Protocol: ovs.ProtocolIPv4,
-		Matches: []ovs.Match{
-			ovs.ConnectionTrackingState(
-				ovs.SetState(ovs.CTStateTracked),
-				ovs.SetState(ovs.CTStateReply),
-			),
-		},
-		Actions: []ovs.Action{
-			ovs.Resubmit(0, TableRib),
-		},
-	})
-	a.addFlow(&ovs.Flow{
-		Priority: 200,
-		Cookie:   CookieIn,
-		Table:    TableNat,
-		Protocol: ovs.ProtocolIPv4,
-		Matches: []ovs.Match{
-			ovs.ConnectionTrackingState(
-				ovs.SetState(ovs.CTStateTracked),
-				ovs.SetState(ovs.CTStateEstablished),
-			),
-		},
-		Actions: []ovs.Action{
-			ovs.Resubmit(0, TableRib),
-		},
-	})
-	a.addFlow(&ovs.Flow{
-		Priority: 10,
-		Cookie:   CookieIn,
-		Table:    TableNat,
-		Protocol: ovs.ProtocolIPv4,
-		Actions: []ovs.Action{
-			ovs.Resubmit(0, TableRib),
-		},
-	})
-	// table=19 RIB
-	a.addFlow(&ovs.Flow{
-		Priority: 0,
-		Cookie:   CookieIn,
-		Table:    TableRib,
-		Protocol: ovs.ProtocolIPv4,
-		Actions: []ovs.Action{
-			ovs.Push("OXM_OF_IPV4_DST"),
-			ovs.Pop("reg0"),
-			ovs.Resubmit(0, TableFib),
-		},
-	})
-	// table=20 FIB
-	a.addFlow(&ovs.Flow{
-		Priority: 0,
-		Cookie:   CookieIn,
-		Table:    TableFib,
-		Actions: []ovs.Action{
-			ovs.Load("0x0", "reg0"),
-			ovs.Resubmit(0, TableFdb),
-		},
-	})
-	// table=30 FDB
-	a.addFlow(&ovs.Flow{
-		Priority: 0,
-		Table:    TableFdb,
-		Cookie:   CookieIn,
-		Actions: []ovs.Action{
-			ovs.Normal(),
-		},
-	})
 }
 
 func (a *Composer) findPortId(name string) int {
@@ -457,7 +465,7 @@ func (a *Composer) AddSNAT(source, sourceTo string) error {
 	err := a.addSNAT(source, sourceTo)
 	if err == nil {
 		a.vsctl.Set.Bridge(a.brname, ovs.BridgeOptions{
-			OtherConfig: map[string]string{toKey("snat", source): sourceTo},
+			OtherConfig: map[string]string{ToKey("snat", source): sourceTo},
 		})
 	}
 	return err
@@ -479,12 +487,12 @@ func (a *Composer) DelSNAT(source string) error {
 		},
 	})
 	if err == nil {
-		a.vsctl.RemoveBridge(a.brname, "other_config", toKey("snat", source))
+		a.vsctl.RemoveBridge(a.brname, "other_config", ToKey("snat", source))
 	}
 	return err
 }
 
-func parseDest(protocol, data string) (string, uint16, error) {
+func ParseBind(protocol, data string) (string, uint16, error) {
 	var dAddr string
 	var dport uint16
 
@@ -503,15 +511,16 @@ func parseDest(protocol, data string) (string, uint16, error) {
 }
 
 func (a *Composer) addDNAT(protocol, dest, destTo string) error {
-	daddr, dport, err := parseDest(protocol, dest)
+	daddr, dport, err := ParseBind(protocol, dest)
 	if err != nil {
 		return err
 	}
-	toaddr, toport, err := parseDest(protocol, destTo)
+	toaddr, toport, err := ParseBind(protocol, destTo)
 	if err != nil {
 		return err
 	}
 
+	// to DNAT
 	matchs := []ovs.Match{
 		ovs.ConnectionTrackingState(
 			ovs.SetState(ovs.CTStateTracked),
@@ -536,6 +545,7 @@ func (a *Composer) addDNAT(protocol, dest, destTo string) error {
 		return err
 	}
 
+	// Hainpin to SNAT
 	matchs = []ovs.Match{
 		ovs.ConnectionTrackingState(
 			ovs.SetState(ovs.CTStateTracked),
@@ -561,6 +571,7 @@ func (a *Composer) addDNAT(protocol, dest, destTo string) error {
 		return err
 	}
 
+	// Hairpin unSNAT
 	matchs = []ovs.Match{
 		ovs.ConnectionTrackingState(
 			ovs.SetState(ovs.CTStateTracked),
@@ -585,7 +596,6 @@ func (a *Composer) addDNAT(protocol, dest, destTo string) error {
 	}); err != nil {
 		return err
 	}
-
 	matchs = []ovs.Match{
 		ovs.ConnectionTrackingState(
 			ovs.SetState(ovs.CTStateTracked),
@@ -610,33 +620,38 @@ func (a *Composer) addDNAT(protocol, dest, destTo string) error {
 	}); err != nil {
 		return err
 	}
-
 	return nil
 }
 
-func toKey(prefix, value string) string {
-	key := fmt.Sprintf("%s-%s", prefix, value)
-	key = strings.Replace(key, ":", "-", 2)
-	return key
+func ToKey(prefix string, values ...string) string {
+	key := fmt.Sprintf("%s-%s", prefix, strings.Join(values, "-"))
+	return strings.Replace(key, ":", "-", 2)
 }
 
 func (a *Composer) AddDNAT(protocol, dest, destTo string) error {
 	err := a.addDNAT(protocol, dest, destTo)
 	if err == nil {
+		key := ToKey("dnat", protocol, dest)
 		a.vsctl.Set.Bridge(a.brname, ovs.BridgeOptions{
-			OtherConfig: map[string]string{toKey("dnat", protocol+"-"+dest): destTo},
+			OtherConfig: map[string]string{key: destTo},
 		})
+		a.dnat[key] = destTo
 	}
 	return err
 }
 
-func (a *Composer) DelDNAT(protocol, dest string) error {
-	daddr, dport, err := parseDest(protocol, dest)
+func (a *Composer) delDNAT(protocol, dest, destTo string) error {
+	daddr, dport, err := ParseBind(protocol, dest)
+	if err != nil {
+		return err
+	}
+	toaddr, toport, err := ParseBind(protocol, destTo)
 	if err != nil {
 		return err
 	}
 	log.Printf("Compose.DelDNAT: %s", dest)
 
+	// to DNAT
 	matchs := []ovs.Match{
 		ovs.ConnectionTrackingState(
 			ovs.SetState(ovs.CTStateTracked),
@@ -647,16 +662,89 @@ func (a *Composer) DelDNAT(protocol, dest string) error {
 	if protocol == "tcp" || protocol == "udp" {
 		matchs = append(matchs, ovs.TransportDestinationPort(dport))
 	}
-	err = a.delFlows(&ovs.MatchFlow{
+	if err := a.delFlows(&ovs.MatchFlow{
 		Cookie:   CookieIn,
 		Table:    TableNat,
 		Protocol: ovs.Protocol(protocol),
 		Matches:  matchs,
-	})
-	if err == nil {
-		a.vsctl.RemoveBridge(a.brname, "other_config", toKey("dnat", protocol+"-"+dest))
+	}); err != nil {
+		return err
+	}
+
+	// Hairpin to SNAT
+	matchs = []ovs.Match{
+		ovs.ConnectionTrackingState(
+			ovs.SetState(ovs.CTStateTracked),
+			ovs.SetState(ovs.CTStateNew),
+		),
+		ovs.NetworkDestination(daddr),
+		ovs.NetworkSource(toaddr),
+	}
+	if protocol == "tcp" || protocol == "udp" {
+		matchs = append(matchs, ovs.TransportDestinationPort(dport))
+	}
+	if err := a.delFlows(&ovs.MatchFlow{
+		Cookie:   CookieIn,
+		Table:    TableNat,
+		Protocol: ovs.Protocol(protocol),
+		Matches:  matchs,
+	}); err != nil {
+		return err
+	}
+
+	// Hairpin unSNAT
+	matchs = []ovs.Match{
+		ovs.ConnectionTrackingState(
+			ovs.SetState(ovs.CTStateTracked),
+			ovs.SetState(ovs.CTStateReply),
+		),
+		ovs.NetworkDestination(toaddr),
+		ovs.NetworkSource(toaddr),
+	}
+	if protocol == "tcp" || protocol == "udp" {
+		matchs = append(matchs, ovs.TransportSourcePort(toport))
+	}
+	if err := a.delFlows(&ovs.MatchFlow{
+		Cookie:   CookieIn,
+		Table:    TableNat,
+		Protocol: ovs.Protocol(protocol),
+		Matches:  matchs,
+	}); err != nil {
+		return err
+	}
+	matchs = []ovs.Match{
+		ovs.ConnectionTrackingState(
+			ovs.SetState(ovs.CTStateTracked),
+			ovs.SetState(ovs.CTStateEstablished),
+		),
+		ovs.NetworkDestination(toaddr),
+		ovs.NetworkSource(toaddr),
+	}
+	if protocol == "tcp" || protocol == "udp" {
+		matchs = append(matchs, ovs.TransportDestinationPort(toport))
+	}
+	if err := a.delFlows(&ovs.MatchFlow{
+		Cookie:   CookieIn,
+		Table:    TableNat,
+		Protocol: ovs.Protocol(protocol),
+		Matches:  matchs,
+	}); err != nil {
+		return err
 	}
 	return err
+}
+
+func (a *Composer) DelDNAT(protocol, dest string) error {
+	key := ToKey("dnat", protocol, dest)
+	if destTo, ok := a.dnat[key]; ok {
+		err := a.delDNAT(protocol, dest, destTo)
+		if err == nil {
+			a.vsctl.RemoveBridge(a.brname, "other_config", key)
+			delete(a.dnat, key)
+		}
+		return err
+	}
+	return nil
 }
 
 func (a *Composer) AddLocal(addr string) error {
