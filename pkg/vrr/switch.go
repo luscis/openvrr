@@ -31,7 +31,11 @@ const (
 func SplitDNAT(key string) (string, string) {
 	values := strings.SplitN(key, "-", 2)
 	protocol, dest := values[0], values[1]
-	return protocol, strings.Replace(dest, "-", ":", 2)
+	return protocol, strings.Replace(dest, "-", ":", 1)
+}
+
+func SplitSNAT(key string) string {
+	return strings.Replace(key, "-", "/", 1)
 }
 
 type Composer struct {
@@ -163,10 +167,19 @@ func (a *Composer) Start() {
 	}
 	for key, value := range options.OtherConfig {
 		if short, found := strings.CutPrefix(key, "snat-"); found {
-			a.addSNAT(short, value)
+			source := SplitSNAT(short)
+			a.addSNAT(source, value)
 		} else if short, found := strings.CutPrefix(key, "dnat-"); found {
 			protocol, dest := SplitDNAT(short)
-			a.addDNAT(protocol, dest, value)
+			daddr, dport, err := ParseBind(protocol, dest)
+			if err != nil {
+				continue
+			}
+			toaddr, toport, err := ParseBind(protocol, value)
+			if err != nil {
+				continue
+			}
+			a.addDNAT(protocol, daddr, dport, toaddr, toport)
 			a.dnat[key] = value
 		}
 	}
@@ -510,16 +523,7 @@ func ParseBind(protocol, data string) (string, uint16, error) {
 	return dAddr, dport, nil
 }
 
-func (a *Composer) addDNAT(protocol, dest, destTo string) error {
-	daddr, dport, err := ParseBind(protocol, dest)
-	if err != nil {
-		return err
-	}
-	toaddr, toport, err := ParseBind(protocol, destTo)
-	if err != nil {
-		return err
-	}
-
+func (a *Composer) addDNAT(protocol, daddr string, dport uint16, toaddr string, toport uint16) error {
 	// to DNAT
 	matchs := []ovs.Match{
 		ovs.ConnectionTrackingState(
@@ -531,7 +535,7 @@ func (a *Composer) addDNAT(protocol, dest, destTo string) error {
 	if protocol == "tcp" || protocol == "udp" {
 		matchs = append(matchs, ovs.TransportDestinationPort(dport))
 	}
-	log.Printf("Compose.addDNAT: %s -> %s", dest, destTo)
+	log.Printf("Compose.addDNAT: %s:%d -> %s:%d", daddr, dport, toaddr, toport)
 	if err := a.addFlow(&ovs.Flow{
 		Priority: 160,
 		Cookie:   CookieIn,
@@ -539,7 +543,7 @@ func (a *Composer) addDNAT(protocol, dest, destTo string) error {
 		Protocol: ovs.Protocol(protocol),
 		Matches:  matchs,
 		Actions: []ovs.Action{
-			ovs.ConnectionTracking(fmt.Sprintf("commit,nat(dst=%s),zone=10,table=%d", destTo, TableRib)),
+			ovs.ConnectionTracking(fmt.Sprintf("commit,nat(dst=%s:%d),zone=10,table=%d", toaddr, toport, TableRib)),
 		},
 	}); err != nil {
 		return err
@@ -564,7 +568,7 @@ func (a *Composer) addDNAT(protocol, dest, destTo string) error {
 		Protocol: ovs.Protocol(protocol),
 		Matches:  matchs,
 		Actions: []ovs.Action{
-			ovs.ConnectionTracking(fmt.Sprintf("commit,nat(dst=%s),zone=10", destTo)),
+			ovs.ConnectionTracking(fmt.Sprintf("commit,nat(dst=%s:%d),zone=10", toaddr, toport)),
 			ovs.Resubmit(0, TableNat),
 		},
 	}); err != nil {
@@ -625,22 +629,12 @@ func (a *Composer) addDNAT(protocol, dest, destTo string) error {
 
 func ToKey(prefix string, values ...string) string {
 	key := fmt.Sprintf("%s-%s", prefix, strings.Join(values, "-"))
-	return strings.Replace(key, ":", "-", 2)
+	key = strings.Replace(key, ":", "-", 1)
+	key = strings.Replace(key, "/", "-", 1)
+	return key
 }
 
 func (a *Composer) AddDNAT(protocol, dest, destTo string) error {
-	err := a.addDNAT(protocol, dest, destTo)
-	if err == nil {
-		key := ToKey("dnat", protocol, dest)
-		a.vsctl.Set.Bridge(a.brname, ovs.BridgeOptions{
-			OtherConfig: map[string]string{key: destTo},
-		})
-		a.dnat[key] = destTo
-	}
-	return err
-}
-
-func (a *Composer) delDNAT(protocol, dest, destTo string) error {
 	daddr, dport, err := ParseBind(protocol, dest)
 	if err != nil {
 		return err
@@ -649,7 +643,22 @@ func (a *Composer) delDNAT(protocol, dest, destTo string) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("Compose.DelDNAT: %s", dest)
+	err = a.addDNAT(protocol, daddr, dport, toaddr, toport)
+	if err == nil {
+		key := ToKey("dnat", protocol, dest)
+		if protocol == "icmp" {
+			key = ToKey("dnat", protocol, daddr)
+		}
+		a.vsctl.Set.Bridge(a.brname, ovs.BridgeOptions{
+			OtherConfig: map[string]string{key: destTo},
+		})
+		a.dnat[key] = destTo
+	}
+	return err
+}
+
+func (a *Composer) delDNAT(protocol, daddr string, dport uint16, toaddr string, toport uint16) error {
+	log.Printf("Compose.DelDNAT: %s:%d", daddr, dport)
 
 	// to DNAT
 	matchs := []ovs.Match{
@@ -731,14 +740,25 @@ func (a *Composer) delDNAT(protocol, dest, destTo string) error {
 	}); err != nil {
 		return err
 	}
-	return err
+
+	return nil
 }
 
 func (a *Composer) DelDNAT(protocol, dest string) error {
+	daddr, dport, err := ParseBind(protocol, dest)
+	if err != nil {
+		return err
+	}
 	key := ToKey("dnat", protocol, dest)
+	if protocol == "icmp" {
+		key = ToKey("dnat", protocol, daddr)
+	}
 	if destTo, ok := a.dnat[key]; ok {
-		err := a.delDNAT(protocol, dest, destTo)
-		if err == nil {
+		toaddr, toport, err := ParseBind(protocol, destTo)
+		if err != nil {
+			return err
+		}
+		if err = a.delDNAT(protocol, daddr, dport, toaddr, toport); err == nil {
 			a.vsctl.RemoveBridge(a.brname, "other_config", key)
 			delete(a.dnat, key)
 		}
