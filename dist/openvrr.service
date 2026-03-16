@@ -4,7 +4,7 @@ After=openvswitch.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/openvrr
+ExecStart=/opt/openvrr/vrr.sh
 RemainAfterExit=yes
 
 [Install]

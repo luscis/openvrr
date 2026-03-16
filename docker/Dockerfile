@@ -3,20 +3,16 @@ FROM debian:bookworm
 WORKDIR /root
 
 # RUN sed -ie 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list
-
-ADD openvrr /usr/bin
-ADD vrrcli /usr/bin
-
 RUN apt-get update -y
-RUN apt install -y net-tools tcpdump iperf3 iputils-ping sudo
-RUN apt install -y frr openvswitch-switch
+RUN apt install -y net-tools tcpdump iperf3 iputils-ping frr openvswitch-switch
 
 RUN mkdir -p /opt/openvrr
 
-COPY script/vrr.sh \
-  script/frr.sh \
-  script/ovsdb-server.sh \
-  script/ovs-vswitchd.sh \
+ADD openvrr /usr/bin
+ADD openvrr-d /opt/openvrr
+
+COPY script/vrr.sh script/frr.sh \
+  script/ovsdb-server.sh script/ovs-vswitchd.sh \
   /opt/openvrr/
 RUN chmod +x /opt/openvrr/*.sh
 
